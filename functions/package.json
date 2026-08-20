@@ -1,0 +1,13 @@
+{
+  "name": "sql-control-function",
+  "version": "1.0.0",
+  "description": "Cloud SQL start/stop/status control panel backend — control-plane only, no VPC access required",
+  "main": "cloud_sql_control_function.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.0",
+    "firebase-admin": "^12.1.0"
+  }
+}
