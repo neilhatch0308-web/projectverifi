@@ -10,10 +10,10 @@ router.get('/scoring-criteria', requireAuth, async (req, res) => {
   try {
     const criteria = await withTenantContext(organizationId, async (client) => {
       const result = await client.query(
-        `SELECT id, name, description, max_points, is_fixed
+        `SELECT id, name, description, max_points, is_fixed, weight_pct, level_definitions
          FROM scoring_criterion
          WHERE active = true
-         ORDER BY max_points DESC, name`
+         ORDER BY weight_pct DESC NULLS LAST, name`
       );
       return result.rows;
     });

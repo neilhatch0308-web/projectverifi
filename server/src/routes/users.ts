@@ -4,9 +4,15 @@ import { withTenantContext } from '../db/pool';
 
 const router = Router();
 
-// For RACI seat dropdowns - every active user in the org, real login or
-// placeholder alike. Placeholders (no firebase_uid) are indistinguishable
-// here from real accounts by design; the seat just needs a named person.
+// Roles considered "senior" for sponsor-selection purposes - a UI nudge,
+// not enforcement. Anyone can still technically be picked; this just
+// sorts and labels them so a mismatched pick is visible before submission.
+// Full role-based enforcement (who's ALLOWED to hold which governance
+// seat) is deferred - same open gap as requireRole() in auth middleware,
+// worth solving once for all governance roles rather than patching this
+// one field in isolation.
+const SENIOR_ROLES = ['org_admin', 'sponsor', 'finance'];
+
 router.get('/users', requireAuth, async (req, res) => {
   const { organizationId } = req.user!;
 
@@ -15,7 +21,7 @@ router.get('/users', requireAuth, async (req, res) => {
       const result = await client.query(
         `SELECT id, display_name, email, role FROM app_user WHERE is_active = true ORDER BY display_name`
       );
-      return result.rows;
+      return result.rows.map((u) => ({ ...u, is_senior: SENIOR_ROLES.includes(u.role) }));
     });
 
     res.json(users);
