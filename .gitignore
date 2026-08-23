@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+firebase-adminsdk.json
+cloud-sql-proxy.exe
+cloud-sql-proxy.x64.exe
+*.log
+Thumbs.db
+Demand metrics.txt

@@ -1,0 +1,262 @@
+/* ===================================================================
+   we-verifi — brand stylesheet for the apex marketing site
+   ===================================================================
+   Expected markup:
+
+   <header class="site-header">
+     <a href="/" class="brand">
+       <img src="/assets/we-verifi-logo.svg" alt="we-verifi" class="brand__mark">
+     </a>
+     <nav class="primary-nav">
+       <ul>
+         <li><a href="https://certs.we-verifi.co.uk" class="nav-link nav-link--cert">Cert Verifi</a></li>
+         <li><a href="https://projects.we-verifi.co.uk" class="nav-link nav-link--project">Project Verifi</a></li>
+         <li><a class="nav-link nav-link--art is-disabled" aria-disabled="true">Art Verifi</a></li>
+       </ul>
+     </nav>
+   </header>
+
+   <section class="product-grid">
+     <a href="https://certs.we-verifi.co.uk" class="product-card product-card--cert">
+       <img src="/assets/cert-verifi-logo.svg" alt="Cert Verifi" class="product-card__logo">
+       <p class="product-card__desc">Issue and verify digital certificates at scale.</p>
+       <span class="btn btn--cert">Visit Cert Verifi →</span>
+     </a>
+     <a href="https://projects.we-verifi.co.uk" class="product-card product-card--project">
+       <img src="/assets/project-verifi-logo.svg" alt="Project Verifi" class="product-card__logo">
+       <p class="product-card__desc">Track project milestones and deliverables.</p>
+       <span class="btn btn--project">Visit Project Verifi →</span>
+     </a>
+     <div class="product-card product-card--art is-disabled">
+       <p class="product-card__desc">Artwork registration and authenticity verification. Coming soon.</p>
+       <span class="badge badge--soon">Coming soon</span>
+     </div>
+   </section>
+   =================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+:root {
+  /* base */
+  --graphite: #14161C;
+  --cloud: #F4F5F8;
+  --hairline: #DADFE8;
+  --muted: #606677;
+
+  /* brand accents (each pulled from the foil gradient) */
+  --indigo: #5B5FEF;   /* Cert Verifi */
+  --teal: #17C3B2;     /* Project Verifi */
+  --magenta: #FF5DA2;  /* Art Verifi (future) */
+
+  --foil-gradient: linear-gradient(135deg, var(--indigo) 0%, var(--teal) 50%, var(--magenta) 100%);
+
+  --radius: 14px;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  /* Logo drives the header's size — bump this one value and padding +
+     nav font size scale with it, same pattern as the admin console. */
+  --logo-height: 54px;
+}
+
+/* ---------- header / nav ---------- */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  /* Vertical padding scales with the logo instead of a fixed value that
+     could crowd or clip a larger mark later. */
+  padding: calc(var(--logo-height) * 0.5) 32px;
+  background: var(--cloud);
+  border-bottom: 1px solid var(--hairline);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; }
+.brand__mark { height: var(--logo-height); width: auto; max-width: 100%; display: block; }
+
+.primary-nav ul {
+  list-style: none;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-link {
+  font-family: var(--font-body);
+  font-weight: 600;
+  /* Tied to the logo, same multiplier logic as admin.html, so nav text
+     scales proportionally rather than looking undersized next to a
+     bigger mark. */
+  font-size: calc(var(--logo-height) * 0.41);
+  color: var(--graphite);
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.15s ease;
+}
+
+.nav-link:hover::after { transform: scaleX(1); }
+
+.nav-link:focus-visible,
+.btn:focus-visible,
+.product-card:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 3px;
+}
+
+.nav-link--cert:hover      { color: var(--indigo); }
+.nav-link--project:hover   { color: var(--teal); }
+.nav-link--art             { color: var(--muted); }
+
+.nav-link.is-disabled {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* ---------- product grid ---------- */
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  padding: 40px 32px 64px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 28px 26px;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(20, 22, 28, 0.08);
+}
+
+.product-card--cert:hover    { border-color: var(--indigo); }
+.product-card--project:hover { border-color: var(--teal); }
+
+.product-card__logo { height: 44px; width: auto; }
+
+.product-card__desc {
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.product-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto; /* pins the buttons to the bottom of the card even if a sibling card's description wraps to a different height */
+}
+
+.product-card.is-disabled {
+  cursor: default;
+  background: var(--cloud);
+}
+.product-card.is-disabled:hover { transform: none; box-shadow: none; }
+
+.badge--soon {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--hairline);
+  padding: 5px 10px;
+  border-radius: 999px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 10px 16px;
+  border-radius: 9px;
+  width: fit-content;
+  color: #fff;
+  transition: opacity 0.15s ease;
+}
+
+.btn:hover { opacity: 0.9; }
+
+.btn--cert    { background: var(--indigo); }
+.btn--project { background: var(--teal); color: var(--graphite); } /* white text here failed WCAG AA (2.21:1) - graphite on this teal is 8.17:1 */
+.btn--gradient { background-image: var(--foil-gradient); }
+
+.btn--outline {
+  background: none;
+  color: var(--indigo);
+  border: 1.5px solid var(--indigo);
+  padding: 8.5px 16px; /* 1.5px less than .btn's 10px, to offset the added border and keep the same visual height as the filled buttons */
+}
+.btn--outline:hover { opacity: 1; background: var(--indigo); color: #fff; }
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 640px) {
+  .site-header { 
+    flex-direction: column; 
+    align-items: center; /* Centers logo and nav on narrow screens */
+    gap: 16px; 
+    padding: 16px;
+  }
+  
+  .primary-nav {
+    width: 100%;
+  }
+
+  .primary-nav ul { 
+    flex-wrap: wrap; 
+    justify-content: center; /* Allows nav links to wrap cleanly into multiple lines */
+    gap: 8px; 
+  }
+
+  .nav-link {
+    /* Ensures text size stays comfortable on small touch screens */
+    font-size: 0.9rem; 
+    padding: 6px 12px;
+  }
+}
