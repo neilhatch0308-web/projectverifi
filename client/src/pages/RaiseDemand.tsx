@@ -160,10 +160,6 @@ export function RaiseDemand() {
           </div>
           <div className="login-field">
             <label>Sponsor</label>
-            <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 6px' }}>
-              The senior person who agreed this is worth pursuing - may or may not
-              end up as the project sponsor named later at acceptance.
-            </p>
             <select value={sponsorUserId} onChange={(e) => setSponsorUserId(e.target.value)} required style={selectStyle}>
               <option value="">Select</option>
               {[...users].sort((a, b) => Number(b.is_senior) - Number(a.is_senior)).map((u) => (
