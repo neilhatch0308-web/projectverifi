@@ -2,8 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
+import { looseUuid } from '../lib/validation';
 
 const router = Router();
+
+class IncompleteScoring extends Error {
+  constructor(public missingCriteria: string[]) {
+    super('Every priority scoring category must be scored before a demand can be raised');
+  }
+}
 
 // ---------- List ----------
 router.get('/demands', requireAuth, async (req, res) => {
@@ -14,8 +21,10 @@ router.get('/demands', requireAuth, async (req, res) => {
       const result = await client.query(
         `SELECT d.id, d.title, d.status, d.raised_date, d.need_by_date,
                 d.complexity_tier, d.cost_tier,
+                p.id AS portfolio_id, p.name AS portfolio_name,
                 COALESCE(pv.weighted_score, 0) AS weighted_score
          FROM demand d
+         JOIN portfolio p ON p.id = d.portfolio_id
          LEFT JOIN demand_priority_view pv ON pv.demand_id = d.id
          ORDER BY d.raised_date DESC`
       );
@@ -102,6 +111,10 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         [id]
       );
 
+      const businessCaseResult = await client.query(
+        `SELECT id FROM business_case WHERE demand_id = $1`, [id]
+      );
+
       return {
         ...demand,
         criteria: criteriaResult.rows,
@@ -109,6 +122,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         scores: scoresResult.rows,
         priority: priorityResult.rows[0] ?? { total_score: 0, weighted_score: 0, criteria_scored: 0, criteria_available: 0 },
         strategyLinks: strategyResult.rows,
+        businessCaseId: businessCaseResult.rows[0]?.id ?? null,
       };
     });
 
@@ -121,16 +135,25 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
 });
 
 // ---------- Create ----------
+// Baseline/target must genuinely be numeric - Postgres's numeric type
+// accepts the literal value NaN, so Number("42 days") silently stored
+// the word "NaN" in the database rather than failing at insert. This
+// rejects anything that doesn't parse cleanly, before it ever reaches SQL.
+const numericString = z.string().optional().refine(
+  (v) => v === undefined || v === '' || (!isNaN(Number(v)) && isFinite(Number(v))),
+  'Must be a plain number'
+);
+
 const criterionSchema = z.object({
   dimension: z.enum(['delivery', 'adoption', 'business', 'financial']),
   measure: z.string().min(1, 'Describe what success looks like for this measure'),
-  baselineValue: z.string().optional(),
-  targetValue: z.string().optional(),
+  baselineValue: numericString,
+  targetValue: numericString,
   unit: z.string().optional(),
 });
 
 const scoreSchema = z.object({
-  criterionId: z.string().uuid(),
+  criterionId: looseUuid(),
   scoreAwarded: z.number().min(0).max(20),
   rationale: z.string().optional(),
 });
@@ -139,13 +162,13 @@ const createDemandSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(1, 'Problem statement is required'),
   outcomeStatement: z.string().min(1, 'Need and output is required'),
-  portfolioId: z.string().uuid('Select a business group / area'),
-  sponsorUserId: z.string().uuid('Select a sponsor'),
+  portfolioId: looseUuid('Select a business group / area'),
+  sponsorUserId: looseUuid('Select a sponsor'),
   needByDate: z.string().optional(),
   adoptionChangeType: z.enum(['process', 'tool', 'both']).nullable().optional(),
   criteria: z.array(criterionSchema).min(1, 'Add at least one success measure'),
-  scores: z.array(scoreSchema).optional().default([]),
-  strategicGoalId: z.string().uuid().optional(),
+  scores: z.array(scoreSchema).min(1, 'Priority scoring is required'),
+  strategicGoalId: looseUuid().optional(),
   alignmentNotes: z.string().optional(),
 });
 
@@ -163,6 +186,18 @@ router.post('/demands', requireAuth, async (req, res) => {
 
   try {
     const demand = await withTenantContext(organizationId, async (client) => {
+      // Every currently active scoring criterion must be scored - not a
+      // hardcoded count, since criteria are tenant-configurable and could
+      // change. A demand can't be raised with some categories skipped.
+      const activeCriteria = await client.query(
+        `SELECT id, name FROM scoring_criterion WHERE organization_id = $1 AND active = true`,
+        [organizationId]
+      );
+      const scoredIds = new Set(scores.map((s) => s.criterionId));
+      const missing = activeCriteria.rows.filter((c) => !scoredIds.has(c.id));
+      if (missing.length > 0) {
+        throw new IncompleteScoring(missing.map((c) => c.name));
+      }
       const demandResult = await client.query(
         `INSERT INTO demand
            (id, organization_id, portfolio_id, title, description, outcome_statement,
@@ -206,6 +241,11 @@ router.post('/demands', requireAuth, async (req, res) => {
 
     res.status(201).json(demand);
   } catch (err) {
+    if (err instanceof IncompleteScoring) {
+      return res.status(400).json({
+        error: `Priority scoring is incomplete - missing: ${err.missingCriteria.join(', ')}`,
+      });
+    }
     console.error('Failed to create demand:', err);
     res.status(500).json({ error: 'Failed to create demand' });
   }
@@ -266,11 +306,11 @@ router.post('/demands/:id/triage', requireAuth, async (req, res) => {
 
 // ---------- Acceptance ----------
 const acceptDemandSchema = z.object({
-  accountableFinancialId: z.string().uuid(),
-  accountableScopeId: z.string().uuid(),
-  accountableScheduleId: z.string().uuid(),
-  sponsorId: z.string().uuid(),
-  benefitOwnerId: z.string().uuid(),
+  accountableFinancialId: looseUuid(),
+  accountableScopeId: looseUuid(),
+  accountableScheduleId: looseUuid(),
+  sponsorId: looseUuid(),
+  benefitOwnerId: looseUuid(),
 });
 
 router.post('/demands/:id/accept', requireAuth, async (req, res) => {
@@ -281,9 +321,13 @@ router.post('/demands/:id/accept', requireAuth, async (req, res) => {
   const { id } = req.params;
   const seats = parsed.data;
 
+  const { userId } = req.user!;
+
   try {
     const result = await withTenantContext(organizationId, async (client) => {
-      const demandCheck = await client.query(`SELECT status FROM demand WHERE id = $1`, [id]);
+      const demandCheck = await client.query(
+        `SELECT status, title, portfolio_id, sponsor_user_id FROM demand WHERE id = $1`, [id]
+      );
       const current = demandCheck.rows[0];
 
       if (!current) return { notFound: true as const };
@@ -303,7 +347,18 @@ router.post('/demands/:id/accept', requireAuth, async (req, res) => {
         [id]
       );
 
-      return { demand: updated.rows[0] };
+      // A business case is created automatically the moment RACI naming
+      // completes - "promoted" IS "a business case now exists." Nothing
+      // for a user to separately click to create one.
+      const businessCase = await client.query(
+        `INSERT INTO business_case
+           (id, organization_id, portfolio_id, demand_id, title, sponsor_user_id, submitted_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [organizationId, current.portfolio_id, id, current.title, current.sponsor_user_id, userId]
+      );
+
+      return { demand: updated.rows[0], businessCaseId: businessCase.rows[0].id };
     });
 
     if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
@@ -311,7 +366,7 @@ router.post('/demands/:id/accept', requireAuth, async (req, res) => {
       return res.status(409).json({ error: `Demand must be accepted at triage before RACI naming (currently: ${result.actual})` });
     }
 
-    res.json(result.demand);
+    res.json({ ...result.demand, businessCaseId: result.businessCaseId });
   } catch (err) {
     console.error('Failed to accept demand:', err);
     res.status(500).json({ error: 'Failed to accept demand' });

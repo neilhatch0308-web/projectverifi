@@ -8,6 +8,7 @@ import strategicGoalsRouter from './routes/strategicGoals';
 import portfolioRouter from './routes/portfolio';
 import usersRouter from './routes/users';
 import scoringCriteriaRouter from './routes/scoringCriteria';
+import businessCaseRouter from './routes/businessCase';
 
 dotenv.config();
 console.log('DATABASE_URL is:', JSON.stringify(process.env.DATABASE_URL));
@@ -21,6 +22,8 @@ app.use('/api', strategicGoalsRouter);
 app.use('/api', portfolioRouter);
 app.use('/api', usersRouter);
 app.use('/api', scoringCriteriaRouter);
+app.use('/api', businessCaseRouter);
+
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 

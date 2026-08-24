@@ -104,13 +104,19 @@ export function RaiseDemand() {
       return;
     }
 
-    const scorePayload = scoringCriteria
-      .filter((c) => scores[c.id]?.level !== undefined && scores[c.id]?.level !== '')
-      .map((c) => ({
-        criterionId: c.id,
-        scoreAwarded: Number(scores[c.id].level),
-        rationale: scores[c.id].rationale || undefined,
-      }));
+    const unscored = scoringCriteria.filter(
+      (c) => scores[c.id]?.level === undefined || scores[c.id]?.level === ''
+    );
+    if (unscored.length > 0) {
+      setError(`Every priority category must be scored - missing: ${unscored.map((c) => c.name).join(', ')}`);
+      return;
+    }
+
+    const scorePayload = scoringCriteria.map((c) => ({
+      criterionId: c.id,
+      scoreAwarded: Number(scores[c.id].level),
+      rationale: scores[c.id].rationale || undefined,
+    }));
 
     setSubmitting(true);
     try {
@@ -237,9 +243,9 @@ export function RaiseDemand() {
             Priority scoring
           </label>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 4 }}>
-            Pick the level that best matches this demand for each category.
+            Every category below must be scored - pick the level that best matches this demand.
             {scoringCriteria.length > 0 && (
-              <> Weighted total: <strong>{weightedTotal.toFixed(1)} / 20</strong> ({scoredCount} of {scoringCriteria.length} scored)</>
+              <> Weighted total: <strong>{weightedTotal.toFixed(1)} / 20</strong> ({scoredCount} of {scoringCriteria.length} scored - all required)</>
             )}
           </p>
         </div>
@@ -328,13 +334,13 @@ export function RaiseDemand() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div className="login-field" style={{ marginBottom: 0 }}>
-                <label>Baseline</label>
-                <input type="text" value={criteria[d.key]?.baselineValue ?? ''}
+                <label>Baseline (number only)</label>
+                <input type="number" step="any" value={criteria[d.key]?.baselineValue ?? ''}
                   onChange={(e) => updateCriterion(d.key, 'baselineValue', e.target.value)} />
               </div>
               <div className="login-field" style={{ marginBottom: 0 }}>
-                <label>Target</label>
-                <input type="text" value={criteria[d.key]?.targetValue ?? ''}
+                <label>Target (number only)</label>
+                <input type="number" step="any" value={criteria[d.key]?.targetValue ?? ''}
                   onChange={(e) => updateCriterion(d.key, 'targetValue', e.target.value)} />
               </div>
               <div className="login-field" style={{ marginBottom: 0 }}>

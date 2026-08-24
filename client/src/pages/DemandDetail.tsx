@@ -28,6 +28,7 @@ interface DemandDetail {
   triaged_at: string | null; triage_notes: string | null; triaged_by_name: string | null;
   criteria: Criterion[]; raci: Raci | null; scores: Score[]; priority: Priority;
   strategyLinks: StrategyLink[];
+  businessCaseId: string | null;
 }
 
 const DIMENSION_LABEL: Record<string, string> = {
@@ -106,6 +107,26 @@ export function DemandDetail() {
         </div>
       </div>
 
+      {demand.scores.length > 0 && (
+        <div style={{ marginBottom: '1.5rem', border: '2px solid var(--teal)', borderRadius: 'var(--radius)', padding: '1rem 1.15rem' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+            Priority scoring - submitted by conceiver
+          </div>
+          {demand.scores.map((s, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < demand.scores.length - 1 ? '1px solid var(--hairline)' : 'none' }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{s.criterion_name}</span>
+                {s.weight_pct !== null && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>weight {s.weight_pct}%</span>
+                )}
+                {s.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{s.rationale}</div>}
+              </div>
+              <span className="pill pill--indigo" style={{ flexShrink: 0, marginLeft: 12 }}>{s.score_awarded} / 20</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {demand.accepted_at && (
         <div style={{ marginBottom: '1.25rem' }}>
           <span className="pill pill--teal">Accepted {new Date(demand.accepted_at).toLocaleDateString()}</span>
@@ -129,23 +150,6 @@ export function DemandDetail() {
             <div key={i} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</div>
               {s.alignment_notes && <div className="goal-card__desc" style={{ marginTop: 2 }}>{s.alignment_notes}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {demand.scores.length > 0 && (
-        <div style={{ marginBottom: '1.25rem' }}>
-          <div className="goal-card__meta" style={{ marginBottom: 8 }}>Priority scoring breakdown</div>
-          {demand.scores.map((s, i) => (
-            <div key={i} className="goal-card" style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{s.criterion_name}</span>
-                <span className="pill pill--indigo">
-                  {s.score_awarded}/20{s.weight_pct ? ` x ${s.weight_pct}%` : ''}
-                </span>
-              </div>
-              {s.rationale && <div className="goal-card__desc" style={{ marginTop: 6 }}>{s.rationale}</div>}
             </div>
           ))}
         </div>
@@ -248,6 +252,12 @@ export function DemandDetail() {
       {demand.status === 'accepted' && (
         <Link to={`/demand/${demand.id}/accept`} className="btn btn--project" style={{ textDecoration: 'none' }}>
           Build RACI and formally promote
+        </Link>
+      )}
+
+      {demand.status === 'promoted' && demand.businessCaseId && (
+        <Link to={`/business-case/${demand.businessCaseId}`} className="btn btn--project" style={{ textDecoration: 'none' }}>
+          View business case
         </Link>
       )}
     </div>

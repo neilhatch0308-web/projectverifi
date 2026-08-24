@@ -6,6 +6,7 @@ import { AllDemand } from './pages/AllDemand';
 import { RaiseDemand } from './pages/RaiseDemand';
 import { DemandDetail } from './pages/DemandDetail';
 import { AcceptDemand } from './pages/AcceptDemand';
+import { BusinessCaseDetail } from './pages/BusinessCaseDetail';
 import { StrategicGoals } from './pages/StrategicGoals';
 import { ComingSoon } from './pages/ComingSoon';
 
@@ -30,6 +31,7 @@ function App() {
               <Route path="/demand/raise" element={<RaiseDemand />} />
               <Route path="/demand/:id" element={<DemandDetail />} />
               <Route path="/demand/:id/accept" element={<AcceptDemand />} />
+              <Route path="/business-case/:id" element={<BusinessCaseDetail />} />
               <Route path="/goals" element={<StrategicGoals />} />
               <Route path="/portfolio" element={<ComingSoon title="Portfolio Rollup" />} />
               <Route path="/projects" element={<ComingSoon title="Active Initiatives" />} />

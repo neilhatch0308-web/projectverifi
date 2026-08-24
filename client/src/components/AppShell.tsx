@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import iconMark from '../assets/project-verifi-icon.svg';
 
@@ -31,6 +31,15 @@ export function AppShell() {
             Project<span className="app-brand__accent"> Verifi</span>
           </span>
         </div>
+
+        <Link
+          to="/demand/raise"
+          className="btn btn--project"
+          style={{ width: '100%', justifyContent: 'center', marginBottom: '1.5rem', textDecoration: 'none', fontSize: 13, padding: '9px 0' }}
+        >
+          + Raise demand
+        </Link>
+
         {navGroups.map((group) => (
           <div key={group.label} className="nav-group">
             <div className="nav-group__label">{group.label}</div>
