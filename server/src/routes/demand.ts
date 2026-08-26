@@ -20,12 +20,17 @@ router.get('/demands', requireAuth, async (req, res) => {
     const demands = await withTenantContext(organizationId, async (client) => {
       const result = await client.query(
         `SELECT d.id, d.title, d.status, d.raised_date, d.need_by_date,
-                d.complexity_tier, d.cost_tier,
+                d.complexity_tier, d.cost_tier, d.date_driver_type,
+                d.claimed_cost, d.claimed_benefit,
+                a.assessed_cost, a.assessed_benefit,
                 p.id AS portfolio_id, p.name AS portfolio_name,
+                sub.id AS delivering_sub_portfolio_id, sub.name AS delivering_sub_portfolio_name,
                 COALESCE(pv.weighted_score, 0) AS weighted_score
          FROM demand d
          JOIN portfolio p ON p.id = d.portfolio_id
+         LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
          LEFT JOIN demand_priority_view pv ON pv.demand_id = d.id
+         LEFT JOIN demand_assessment a ON a.demand_id = d.id
          ORDER BY d.raised_date DESC`
       );
       return result.rows;
@@ -49,12 +54,19 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         `SELECT d.id, d.title, d.description, d.outcome_statement, d.status,
                 d.raised_date, d.need_by_date, d.accepted_at, d.adoption_change_type,
                 d.complexity_tier, d.cost_tier, d.triaged_at, d.triage_notes,
+                d.date_driver_type, d.date_driver_detail,
+                d.claimed_cost, d.claimed_benefit,
                 p.name AS portfolio_name,
+                sub.name AS delivering_sub_portfolio_name,
+                subparent.name AS delivering_parent_portfolio_name,
+                d.delivering_sub_portfolio_id,
                 conceiver.display_name AS raised_by_name,
                 sponsor.display_name AS sponsor_name,
                 triager.display_name AS triaged_by_name
          FROM demand d
          JOIN portfolio p ON p.id = d.portfolio_id
+         LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
+         LEFT JOIN portfolio subparent ON subparent.id = sub.parent_portfolio_id
          LEFT JOIN app_user conceiver ON conceiver.id = d.raised_by
          LEFT JOIN app_user sponsor ON sponsor.id = d.sponsor_user_id
          LEFT JOIN app_user triager ON triager.id = d.triaged_by
@@ -115,6 +127,17 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         `SELECT id FROM business_case WHERE demand_id = $1`, [id]
       );
 
+      const assessmentResult = await client.query(
+        `SELECT a.assessed_cost, a.assessed_benefit, a.cost_confidence, a.benefit_confidence,
+                a.assessment_narrative, a.assessor_capacity, a.assessor_detail,
+                a.recommendation, a.assessed_at,
+                u.display_name AS assessed_by_name
+         FROM demand_assessment a
+         LEFT JOIN app_user u ON u.id = a.assessed_by
+         WHERE a.demand_id = $1`,
+        [id]
+      );
+
       return {
         ...demand,
         criteria: criteriaResult.rows,
@@ -123,6 +146,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         priority: priorityResult.rows[0] ?? { total_score: 0, weighted_score: 0, criteria_scored: 0, criteria_available: 0 },
         strategyLinks: strategyResult.rows,
         businessCaseId: businessCaseResult.rows[0]?.id ?? null,
+        assessment: assessmentResult.rows[0] ?? null,
       };
     });
 
@@ -131,6 +155,56 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Failed to fetch demand:', err);
     res.status(500).json({ error: 'Failed to fetch demand' });
+  }
+});
+
+// ---------- Assign or reassign the delivering sub-portfolio ----------
+// Not required at raise - assigned later, typically at assessment, and
+// changeable up to planning. Every change is logged, consistent with
+// budget transfers being recorded events rather than silent edits.
+const assignSubPortfolioSchema = z.object({
+  subPortfolioId: looseUuid().nullable(),
+  reason: z.string().optional(),
+});
+
+router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, async (req, res) => {
+  const parsed = assignSubPortfolioSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+  const { subPortfolioId, reason } = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const current = await client.query(
+        `SELECT delivering_sub_portfolio_id FROM demand WHERE id = $1`, [id]
+      );
+      if (current.rows.length === 0) return null;
+
+      const previousSubPortfolioId = current.rows[0].delivering_sub_portfolio_id;
+
+      const updated = await client.query(
+        `UPDATE demand SET delivering_sub_portfolio_id = $1 WHERE id = $2
+         RETURNING id, delivering_sub_portfolio_id`,
+        [subPortfolioId, id]
+      );
+
+      await client.query(
+        `INSERT INTO demand_portfolio_assignment_history
+           (id, demand_id, from_sub_portfolio_id, to_sub_portfolio_id, reason, changed_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+        [id, previousSubPortfolioId, subPortfolioId, reason ?? null, userId]
+      );
+
+      return updated.rows[0];
+    });
+
+    if (!result) return res.status(404).json({ error: 'Demand not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to assign delivering sub-portfolio:', err);
+    res.status(500).json({ error: 'Failed to assign delivering sub-portfolio' });
   }
 });
 
@@ -162,10 +236,14 @@ const createDemandSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(1, 'Problem statement is required'),
   outcomeStatement: z.string().min(1, 'Need and output is required'),
-  portfolioId: looseUuid('Select a business group / area'),
+  portfolioId: looseUuid('Select the raising portfolio'),
   sponsorUserId: looseUuid('Select a sponsor'),
   needByDate: z.string().optional(),
   adoptionChangeType: z.enum(['process', 'tool', 'both']).nullable().optional(),
+  dateDriverType: z.enum(['regulatory', 'audit_finding', 'contractual', 'product_launch', 'none']).optional(),
+  dateDriverDetail: z.string().optional(),
+  claimedCost: z.number().min(0, 'Give your best estimate of cost'),
+  claimedBenefit: z.number().min(0, 'Give your best estimate of benefit'),
   criteria: z.array(criterionSchema).min(1, 'Add at least one success measure'),
   scores: z.array(scoreSchema).min(1, 'Priority scoring is required'),
   strategicGoalId: looseUuid().optional(),
@@ -180,7 +258,8 @@ router.post('/demands', requireAuth, async (req, res) => {
 
   const {
     title, description, outcomeStatement, portfolioId, sponsorUserId, needByDate,
-    adoptionChangeType, criteria, scores, strategicGoalId, alignmentNotes,
+    adoptionChangeType, dateDriverType, dateDriverDetail, claimedCost, claimedBenefit,
+    criteria, scores, strategicGoalId, alignmentNotes,
   } = parsed.data;
   const { userId, organizationId } = req.user!;
 
@@ -201,10 +280,14 @@ router.post('/demands', requireAuth, async (req, res) => {
       const demandResult = await client.query(
         `INSERT INTO demand
            (id, organization_id, portfolio_id, title, description, outcome_statement,
-            raised_by, sponsor_user_id, need_by_date, raised_date, size_tier, status, adoption_change_type)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, 'unsized', 'raised', $9)
+            raised_by, sponsor_user_id, need_by_date, raised_date, size_tier, status,
+            adoption_change_type, date_driver_type, date_driver_detail,
+            claimed_cost, claimed_benefit)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, 'unsized', 'raised', $9, $10, $11, $12, $13)
          RETURNING id, title, status, raised_date`,
-        [organizationId, portfolioId, title, description, outcomeStatement, userId, sponsorUserId, needByDate ?? null, adoptionChangeType ?? null]
+        [organizationId, portfolioId, title, description, outcomeStatement, userId, sponsorUserId,
+         needByDate ?? null, adoptionChangeType ?? null, dateDriverType ?? 'none', dateDriverDetail ?? null,
+         claimedCost, claimedBenefit]
       );
 
       const newDemand = demandResult.rows[0];
@@ -304,6 +387,100 @@ router.post('/demands/:id/triage', requireAuth, async (req, res) => {
   }
 });
 
+// ---------- Assessment (P75) ----------
+// Every accepted demand goes through this - no threshold, no skipping.
+// The assessor states their own figures ALONGSIDE the preserved claim;
+// the original is never overwritten. The delta is the artifact.
+const assessmentSchema = z.object({
+  assessedCost: z.number().min(0),
+  assessedBenefit: z.number().min(0),
+  costConfidence: z.enum(['low', 'medium', 'high']),
+  benefitConfidence: z.enum(['low', 'medium', 'high']),
+  assessmentNarrative: z.string().min(1, 'Explain what changed from the claim, or why it stands'),
+  assessorCapacity: z.enum(['portfolio_lead', 'business_analyst', 'technical_consultant', 'project_manager', 'third_party', 'other']),
+  assessorDetail: z.string().optional(),
+  recommendation: z.enum(['proceed', 'stop', 'no_recommendation']),
+});
+
+router.post('/demands/:id/assessment', requireAuth, async (req, res) => {
+  const parsed = assessmentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+  const a = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const check = await client.query(`SELECT status FROM demand WHERE id = $1`, [id]);
+      const current = check.rows[0];
+
+      if (!current) return { notFound: true as const };
+      if (current.status !== 'accepted') {
+        return { wrongStatus: true as const, actual: current.status };
+      }
+
+      await client.query(
+        `INSERT INTO demand_assessment
+           (id, demand_id, assessed_cost, assessed_benefit, cost_confidence, benefit_confidence,
+            assessment_narrative, assessed_by, assessor_capacity, assessor_detail, recommendation)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [id, a.assessedCost, a.assessedBenefit, a.costConfidence, a.benefitConfidence,
+         a.assessmentNarrative, userId, a.assessorCapacity, a.assessorDetail ?? null, a.recommendation]
+      );
+
+      const updated = await client.query(
+        `UPDATE demand SET status = 'assessed' WHERE id = $1 RETURNING id, title, status`,
+        [id]
+      );
+
+      return { demand: updated.rows[0] };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    if ('wrongStatus' in result) {
+      return res.status(409).json({ error: `Only an accepted demand can be assessed (currently: ${result.actual})` });
+    }
+
+    res.json(result.demand);
+  } catch (err) {
+    console.error('Failed to record assessment:', err);
+    res.status(500).json({ error: 'Failed to record assessment' });
+  }
+});
+
+// ---------- Stop a demand after assessment ----------
+// Distinct from a triage rejection: 'rejected' means the idea wasn't
+// worth pursuing; 'stopped' means the economics collapsed once someone
+// actually looked. Different portfolio signals, recorded differently.
+const stopSchema = z.object({ reason: z.string().min(1, 'A reason is required to stop a demand') });
+
+router.post('/demands/:id/stop', requireAuth, async (req, res) => {
+  const parsed = stopSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const updated = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(
+        `UPDATE demand SET status = 'stopped', triage_notes = COALESCE(triage_notes, '') || $1
+         WHERE id = $2 AND status IN ('accepted', 'assessed')
+         RETURNING id, title, status`,
+        [`\n[Stopped at assessment] ${parsed.data.reason}`, id]
+      );
+      return result.rows[0];
+    });
+
+    if (!updated) return res.status(409).json({ error: 'Only an accepted or assessed demand can be stopped' });
+    res.json(updated);
+  } catch (err) {
+    console.error('Failed to stop demand:', err);
+    res.status(500).json({ error: 'Failed to stop demand' });
+  }
+});
+
 // ---------- Acceptance ----------
 const acceptDemandSchema = z.object({
   accountableFinancialId: looseUuid(),
@@ -331,7 +508,7 @@ router.post('/demands/:id/accept', requireAuth, async (req, res) => {
       const current = demandCheck.rows[0];
 
       if (!current) return { notFound: true as const };
-      if (current.status !== 'accepted') {
+      if (current.status !== 'assessed') {
         return { wrongStatus: true as const, actual: current.status };
       }
 
@@ -363,7 +540,7 @@ router.post('/demands/:id/accept', requireAuth, async (req, res) => {
 
     if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
     if ('wrongStatus' in result) {
-      return res.status(409).json({ error: `Demand must be accepted at triage before RACI naming (currently: ${result.actual})` });
+      return res.status(409).json({ error: `Demand must be assessed before RACI naming (currently: ${result.actual})` });
     }
 
     res.json({ ...result.demand, businessCaseId: result.businessCaseId });

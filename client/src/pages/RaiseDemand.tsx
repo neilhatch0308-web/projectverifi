@@ -45,6 +45,10 @@ export function RaiseDemand() {
   const [sponsorUserId, setSponsorUserId] = useState('');
   const [needByDate, setNeedByDate] = useState('');
   const [changeType, setChangeType] = useState('');
+  const [claimedCost, setClaimedCost] = useState('');
+  const [claimedBenefit, setClaimedBenefit] = useState('');
+  const [dateDriverType, setDateDriverType] = useState('none');
+  const [dateDriverDetail, setDateDriverDetail] = useState('');
   const [strategicGoalId, setStrategicGoalId] = useState('');
   const [alignmentNotes, setAlignmentNotes] = useState('');
 
@@ -104,6 +108,16 @@ export function RaiseDemand() {
       return;
     }
 
+    if (!claimedCost || !claimedBenefit) {
+      setError('Give your best estimate of cost and benefit - a rough figure is fine, it will be assessed properly later');
+      return;
+    }
+
+    if (dateDriverType !== 'none' && !dateDriverDetail.trim()) {
+      setError('Name the specific obligation driving the date - which regulation, audit finding, contract, or launch');
+      return;
+    }
+
     const unscored = scoringCriteria.filter(
       (c) => scores[c.id]?.level === undefined || scores[c.id]?.level === ''
     );
@@ -130,6 +144,10 @@ export function RaiseDemand() {
           sponsorUserId,
           needByDate: needByDate || undefined,
           adoptionChangeType: changeType || null,
+          dateDriverType,
+          dateDriverDetail: dateDriverDetail || undefined,
+          claimedCost: Number(claimedCost),
+          claimedBenefit: Number(claimedBenefit),
           criteria: activeCriteria,
           scores: scorePayload,
           strategicGoalId: strategicGoalId || undefined,
@@ -158,7 +176,7 @@ export function RaiseDemand() {
         {/* ---------- Who ---------- */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div className="login-field">
-            <label>Business group / area</label>
+            <label>Raising portfolio</label>
             <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)} required style={selectStyle}>
               <option value="">Select</option>
               {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -179,6 +197,8 @@ export function RaiseDemand() {
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 16px' }}>
           You (the conceiver) are recorded automatically as whoever is signed in.
         </p>
+
+
 
         <div className="login-field">
           <label>Problem title</label>
@@ -218,6 +238,49 @@ export function RaiseDemand() {
               <option value="both">Both</option>
             </select>
           </div>
+        </div>
+
+        <div style={{ marginTop: '1.5rem', marginBottom: '0.75rem' }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            Your estimate
+          </label>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+            Your best view of cost and benefit. A rough figure is expected at this stage -
+            it gets properly assessed later. But this is the number you are putting your
+            name to, and it stays on the record alongside whatever the assessment finds.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="login-field" style={{ marginBottom: 0 }}>
+              <label>Estimated cost (GBP)</label>
+              <input type="number" step="any" min="0" value={claimedCost}
+                onChange={(e) => setClaimedCost(e.target.value)} required />
+            </div>
+            <div className="login-field" style={{ marginBottom: 0 }}>
+              <label>Estimated benefit (GBP)</label>
+              <input type="number" step="any" min="0" value={claimedBenefit}
+                onChange={(e) => setClaimedBenefit(e.target.value)} required />
+            </div>
+          </div>
+        </div>
+
+        <div className="login-field" style={{ marginTop: '1.25rem' }}>
+          <label>Is this date driven by an external obligation?</label>
+          <select value={dateDriverType} onChange={(e) => setDateDriverType(e.target.value)} style={selectStyle}>
+            <option value="none">No - the date is a preference, not an obligation</option>
+            <option value="regulatory">Regulatory / legislative deadline</option>
+            <option value="audit_finding">Audit finding remediation</option>
+            <option value="contractual">Contractual commitment</option>
+            <option value="product_launch">Product launch dependency</option>
+          </select>
+          {dateDriverType !== 'none' && (
+            <input
+              type="text"
+              placeholder="Which one specifically? e.g. 'GDPR Art. 17 retention', 'Internal audit finding IA-2026-14'"
+              value={dateDriverDetail}
+              onChange={(e) => setDateDriverDetail(e.target.value)}
+              style={{ marginTop: 8 }}
+            />
+          )}
         </div>
 
         <div className="login-field">

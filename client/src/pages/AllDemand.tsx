@@ -12,7 +12,8 @@ interface Demand {
 }
 
 const statusPill: Record<string, string> = {
-  raised: 'pill--muted', accepted: 'pill--indigo', promoted: 'pill--teal', rejected: 'pill--muted',
+  raised: 'pill--muted', accepted: 'pill--indigo', assessed: 'pill--indigo',
+  promoted: 'pill--teal', rejected: 'pill--muted', stopped: 'pill--muted',
 };
 
 export function AllDemand() {
@@ -52,7 +53,16 @@ export function AllDemand() {
           <tbody>
             {filtered.map((d) => (
               <tr key={d.id}>
-                <td><Link to={`/demand/${d.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>{d.title}</Link></td>
+                <td>
+                  <Link to={`/demand/${d.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>{d.title}</Link>
+                  {d.date_driver_type && d.date_driver_type !== 'none' && (
+                    <span style={{
+                      marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 9.5,
+                      padding: '2px 6px', borderRadius: 4,
+                      background: 'rgba(232,163,23,0.15)', color: '#8a6100',
+                    }}>FIXED</span>
+                  )}
+                </td>
                 <td><span className={`pill ${statusPill[d.status] ?? 'pill--muted'}`}>{d.status}</span></td>
                 <td>{Number(d.weighted_score) > 0 ? Number(d.weighted_score).toFixed(1) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                 <td>{d.need_by_date ? new Date(d.need_by_date).toLocaleDateString() : <span style={{ color: 'var(--muted)' }}>-</span>}</td>

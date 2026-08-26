@@ -8,7 +8,10 @@ const navGroups = [
     items: [
       { to: '/portfolio', label: 'Portfolio rollup' },
       { to: '/demand', label: 'All demand' },
+      { to: '/planning', label: 'Annual planning' },
       { to: '/goals', label: 'Strategic goals' },
+      { to: '/budgets', label: 'Portfolio budgets' },
+      { to: '/portfolio-admin', label: 'Portfolio config' },
     ],
   },
   {
