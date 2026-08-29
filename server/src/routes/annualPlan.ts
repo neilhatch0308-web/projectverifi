@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
 
@@ -129,7 +129,7 @@ const placeItemSchema = z.object({
   reason: z.string().optional(),
 });
 
-router.post('/annual-plans/:id/items', requireAuth, async (req, res) => {
+router.post('/annual-plans/:id/items', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const parsed = placeItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -169,7 +169,7 @@ router.post('/annual-plans/:id/items', requireAuth, async (req, res) => {
 });
 
 // ---------- Move a demand back to All (remove its placement) ----------
-router.delete('/annual-plans/:id/items/:demandId', requireAuth, async (req, res) => {
+router.delete('/annual-plans/:id/items/:demandId', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId } = req.user!;
   const { id, demandId } = req.params;
 
@@ -194,7 +194,7 @@ router.delete('/annual-plans/:id/items/:demandId', requireAuth, async (req, res)
 });
 
 // ---------- Agree the plan - locks it ----------
-router.post('/annual-plans/:id/agree', requireAuth, async (req, res) => {
+router.post('/annual-plans/:id/agree', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
@@ -221,7 +221,7 @@ router.post('/annual-plans/:id/agree', requireAuth, async (req, res) => {
 // "The year as a large Sprint" - a mid-year review doesn't edit the
 // agreed original, it creates a new version. The original stays exactly
 // as agreed, for comparison.
-router.post('/annual-plans/:id/revise', requireAuth, async (req, res) => {
+router.post('/annual-plans/:id/revise', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
 

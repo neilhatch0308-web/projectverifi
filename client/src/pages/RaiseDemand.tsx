@@ -51,6 +51,7 @@ export function RaiseDemand() {
   const [dateDriverDetail, setDateDriverDetail] = useState('');
   const [strategicGoalId, setStrategicGoalId] = useState('');
   const [alignmentNotes, setAlignmentNotes] = useState('');
+  const [confidential, setConfidential] = useState(false);
 
   const [selectedDimensions, setSelectedDimensions] = useState<Set<Criterion['dimension']>>(new Set(['adoption']));
   const [criteria, setCriteria] = useState<Record<string, Criterion>>({
@@ -148,6 +149,7 @@ export function RaiseDemand() {
           dateDriverDetail: dateDriverDetail || undefined,
           claimedCost: Number(claimedCost),
           claimedBenefit: Number(claimedBenefit),
+          confidential,
           criteria: activeCriteria,
           scores: scorePayload,
           strategicGoalId: strategicGoalId || undefined,
@@ -205,6 +207,14 @@ export function RaiseDemand() {
           <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Regional forecast data remains manual and error-prone" required />
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, marginBottom: '1.25rem' }}>
+          <input type="checkbox" checked={confidential} onChange={(e) => setConfidential(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>
+            <strong>Confidential</strong>
+            <span style={{ color: 'var(--muted)' }}> - only visible to you and users whose role grants access to confidential demand.</span>
+          </span>
+        </label>
 
         <div className="login-field">
           <label>Problem statement</label>

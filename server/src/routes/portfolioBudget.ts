@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
 
@@ -32,22 +32,40 @@ router.get('/portfolio-budgets', requireAuth, async (req, res) => {
 });
 
 // ---------- Set or update a portfolio's allocation ----------
+// A change to an EXISTING allocation is an audited event - it needs a
+// reason and is recorded in portfolio_budget_adjustment, the same
+// discipline already applied to cross-portfolio transfers below. The
+// first-ever allocation for a portfolio/year has no prior value to
+// justify a change from, so no reason is required and nothing is logged.
 const setBudgetSchema = z.object({
   portfolioId: looseUuid(),
   financialYear: z.number().int(),
   allocatedAmount: z.number().min(0),
+  reason: z.string().optional(),
 });
 
-router.put('/portfolio-budgets', requireAuth, async (req, res) => {
+router.put('/portfolio-budgets', requireAuth, requirePermission('budgets.manage'), async (req, res) => {
   const parsed = setBudgetSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const { organizationId, userId } = req.user!;
-  const { portfolioId, financialYear, allocatedAmount } = parsed.data;
+  const { portfolioId, financialYear, allocatedAmount, reason } = parsed.data;
 
   try {
-    const budget = await withTenantContext(organizationId, async (client) => {
-      const result = await client.query(
+    const result = await withTenantContext(organizationId, async (client) => {
+      const existing = await client.query(
+        `SELECT allocated_amount FROM portfolio_budget WHERE portfolio_id = $1 AND financial_year = $2`,
+        [portfolioId, financialYear]
+      );
+
+      const priorAmount = existing.rows[0]?.allocated_amount ?? null;
+      const isChange = priorAmount !== null && Number(priorAmount) !== allocatedAmount;
+
+      if (isChange && !reason?.trim()) {
+        return { error: 'A reason is required when changing an existing budget allocation' as const };
+      }
+
+      const budget = await client.query(
         `INSERT INTO portfolio_budget (id, organization_id, portfolio_id, financial_year, allocated_amount, set_by)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
          ON CONFLICT (portfolio_id, financial_year)
@@ -55,13 +73,52 @@ router.put('/portfolio-budgets', requireAuth, async (req, res) => {
          RETURNING id, portfolio_id, financial_year, allocated_amount`,
         [organizationId, portfolioId, financialYear, allocatedAmount, userId]
       );
-      return result.rows[0];
+
+      if (isChange) {
+        await client.query(
+          `INSERT INTO portfolio_budget_adjustment
+             (id, organization_id, portfolio_id, financial_year, prior_amount, new_amount, reason, adjusted_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)`,
+          [organizationId, portfolioId, financialYear, priorAmount, allocatedAmount, reason!.trim(), userId]
+        );
+      }
+
+      return { budget: budget.rows[0] };
     });
 
-    res.json(budget);
+    if ('error' in result) return res.status(400).json({ error: result.error });
+    res.json(result.budget);
   } catch (err) {
     console.error('Failed to set portfolio budget:', err);
     res.status(500).json({ error: 'Failed to set portfolio budget' });
+  }
+});
+
+// ---------- Adjustment history for a year ----------
+router.get('/portfolio-budgets/adjustments', requireAuth, async (req, res) => {
+  const { organizationId } = req.user!;
+  const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+
+  try {
+    const adjustments = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(
+        `SELECT a.id, a.prior_amount, a.new_amount, a.reason, a.adjusted_at,
+                p.name AS portfolio_name,
+                u.display_name AS adjusted_by_name
+         FROM portfolio_budget_adjustment a
+         JOIN portfolio p ON p.id = a.portfolio_id
+         LEFT JOIN app_user u ON u.id = a.adjusted_by
+         WHERE a.financial_year = $1
+         ORDER BY a.adjusted_at DESC`,
+        [year]
+      );
+      return result.rows;
+    });
+
+    res.json(adjustments);
+  } catch (err) {
+    console.error('Failed to fetch budget adjustments:', err);
+    res.status(500).json({ error: 'Failed to fetch budget adjustments' });
   }
 });
 
@@ -79,7 +136,7 @@ const transferSchema = z.object({
   message: 'Cannot transfer budget to the same portfolio',
 });
 
-router.post('/portfolio-budgets/transfers', requireAuth, async (req, res) => {
+router.post('/portfolio-budgets/transfers', requireAuth, requirePermission('budgets.manage'), async (req, res) => {
   const parsed = transferSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

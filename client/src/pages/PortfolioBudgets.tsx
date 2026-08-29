@@ -25,16 +25,34 @@ interface Transfer {
   approved_by_name: string | null;
 }
 
+interface Adjustment {
+  id: string;
+  prior_amount: number;
+  new_amount: number;
+  reason: string;
+  adjusted_at: string;
+  portfolio_name: string;
+  adjusted_by_name: string | null;
+}
+
+// A single merged timeline entry, so the audit trail reads as one
+// history rather than two separate lists a reader has to cross-reference.
+type ChangeEntry =
+  | { kind: 'adjustment'; at: string; data: Adjustment }
+  | { kind: 'transfer'; at: string; data: Transfer };
+
 export function PortfolioBudgets() {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<Record<string, string>>({});
+  const [editReason, setEditReason] = useState<Record<string, string>>({});
   const [showTransfer, setShowTransfer] = useState(false);
   const [fromPortfolio, setFromPortfolio] = useState('');
   const [toPortfolio, setToPortfolio] = useState('');
@@ -47,8 +65,9 @@ export function PortfolioBudgets() {
     Promise.all([
       apiFetch(`/api/portfolio-budgets?year=${y}`),
       apiFetch(`/api/portfolio-budgets/transfers?year=${y}`),
+      apiFetch(`/api/portfolio-budgets/adjustments?year=${y}`),
     ])
-      .then(([b, t]) => { setBudgets(b); setTransfers(t); })
+      .then(([b, t, a]) => { setBudgets(b); setTransfers(t); setAdjustments(a); })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
@@ -56,15 +75,29 @@ export function PortfolioBudgets() {
   useEffect(() => { apiFetch('/api/portfolios').then(setPortfolios).catch(() => {}); }, []);
   useEffect(() => load(year), [year]);
 
-  async function saveBudget(portfolioId: string) {
+  async function saveBudget(portfolioId: string, isExisting: boolean) {
     const value = editing[portfolioId];
     if (value === undefined || value === '') return;
+
+    const reason = editReason[portfolioId]?.trim() ?? '';
+    if (isExisting && !reason) {
+      setError('A reason is required when changing an existing budget allocation.');
+      return;
+    }
+
     try {
       await apiFetch('/api/portfolio-budgets', {
         method: 'PUT',
-        body: JSON.stringify({ portfolioId, financialYear: year, allocatedAmount: Number(value) }),
+        body: JSON.stringify({
+          portfolioId,
+          financialYear: year,
+          allocatedAmount: Number(value),
+          reason: isExisting ? reason : undefined,
+        }),
       });
       setEditing((e) => { const n = { ...e }; delete n[portfolioId]; return n; });
+      setEditReason((e) => { const n = { ...e }; delete n[portfolioId]; return n; });
+      setError(null);
       load(year);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save budget');
@@ -97,6 +130,14 @@ export function PortfolioBudgets() {
 
   const totalAllocated = budgets.reduce((s, b) => s + Number(b.allocated_amount), 0);
   const totalEffective = budgets.reduce((s, b) => s + Number(b.effective_amount), 0);
+
+  // One merged, time-sorted timeline rather than two lists a reader has
+  // to cross-reference - "what changed and why" shouldn't depend on
+  // knowing whether it was an adjustment or a transfer.
+  const changeHistory: ChangeEntry[] = [
+    ...adjustments.map((a): ChangeEntry => ({ kind: 'adjustment', at: a.adjusted_at, data: a })),
+    ...transfers.map((t): ChangeEntry => ({ kind: 'transfer', at: t.transferred_at, data: t })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
   const inputStyle = { padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, width: '100%' };
   const selectStyle = { ...inputStyle };
@@ -206,6 +247,14 @@ export function PortfolioBudgets() {
                       onChange={(e) => setEditing((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
                       style={{ ...inputStyle, width: 120, textAlign: 'right' }}
                     />
+                    {editing[b.portfolio_id] !== undefined && (
+                      <input
+                        type="text" placeholder="Reason for change"
+                        value={editReason[b.portfolio_id] ?? ''}
+                        onChange={(e) => setEditReason((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
+                        style={{ ...inputStyle, width: 160, marginTop: 6, fontSize: 12 }}
+                      />
+                    )}
                   </td>
                   <td style={{ textAlign: 'right', color: Number(b.transferred_in) > 0 ? '#0e8f82' : 'var(--muted)' }}>
                     {Number(b.transferred_in) > 0 ? `+${Number(b.transferred_in).toLocaleString()}` : '-'}
@@ -218,7 +267,7 @@ export function PortfolioBudgets() {
                   </td>
                   <td>
                     {editing[b.portfolio_id] !== undefined && (
-                      <button onClick={() => saveBudget(b.portfolio_id)} className="btn btn--outline"
+                      <button onClick={() => saveBudget(b.portfolio_id, true)} className="btn btn--outline"
                         style={{ fontSize: 11, padding: '4px 8px' }}>Save</button>
                     )}
                   </td>
@@ -240,7 +289,7 @@ export function PortfolioBudgets() {
                   <td style={{ textAlign: 'right' }}>not set</td>
                   <td>
                     {editing[p.id] !== undefined && editing[p.id] !== '' && (
-                      <button onClick={() => saveBudget(p.id)} className="btn btn--outline"
+                      <button onClick={() => saveBudget(p.id, false)} className="btn btn--outline"
                         style={{ fontSize: 11, padding: '4px 8px' }}>Save</button>
                     )}
                   </td>
@@ -249,21 +298,41 @@ export function PortfolioBudgets() {
             </tbody>
           </table>
 
-          {transfers.length > 0 && (
+          {(adjustments.length > 0 || transfers.length > 0) && (
             <div>
-              <div className="goal-card__meta" style={{ marginBottom: 8 }}>Transfer history - {year}</div>
-              {transfers.map((t) => (
-                <div key={t.id} className="goal-card" style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 13 }}>
-                    <strong>GBP {Number(t.amount).toLocaleString()}</strong> moved from{' '}
-                    <strong>{t.from_portfolio_name}</strong> to <strong>{t.to_portfolio_name}</strong>
+              <div className="goal-card__meta" style={{ marginBottom: 8 }}>Budget change history - {year}</div>
+              {changeHistory.map((entry) => (
+                entry.kind === 'adjustment' ? (
+                  <div key={`adj-${entry.data.id}`} className="goal-card" style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontSize: 13 }}>
+                        <strong>{entry.data.portfolio_name}</strong> adjusted from{' '}
+                        <strong>GBP {Number(entry.data.prior_amount).toLocaleString()}</strong> to{' '}
+                        <strong>GBP {Number(entry.data.new_amount).toLocaleString()}</strong>
+                      </div>
+                      <span className="pill pill--indigo">Adjustment</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{entry.data.reason}</div>
+                    <div className="goal-card__meta" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
+                      {entry.data.adjusted_by_name ?? 'unknown'} &middot; {new Date(entry.data.adjusted_at).toLocaleDateString()}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{t.reason}</div>
-                  <div className="goal-card__meta" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
-                    {t.approved_by_name ?? 'unknown'} &middot; {new Date(t.transferred_at).toLocaleDateString()}
-                    {t.related_demand_title && ` \u00b7 re: ${t.related_demand_title}`}
+                ) : (
+                  <div key={`xfer-${entry.data.id}`} className="goal-card" style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontSize: 13 }}>
+                        <strong>GBP {Number(entry.data.amount).toLocaleString()}</strong> moved from{' '}
+                        <strong>{entry.data.from_portfolio_name}</strong> to <strong>{entry.data.to_portfolio_name}</strong>
+                      </div>
+                      <span className="pill pill--teal">Transfer</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{entry.data.reason}</div>
+                    <div className="goal-card__meta" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
+                      {entry.data.approved_by_name ?? 'unknown'} &middot; {new Date(entry.data.transferred_at).toLocaleDateString()}
+                      {entry.data.related_demand_title && ` \u00b7 re: ${entry.data.related_demand_title}`}
+                    </div>
                   </div>
-                </div>
+                )
               ))}
             </div>
           )}

@@ -30,6 +30,7 @@ interface Assessment {
 
 interface DemandDetail {
   id: string; title: string; description: string; outcome_statement: string; status: string;
+  confidential: boolean;
   raised_date: string; need_by_date: string | null; accepted_at: string | null;
   adoption_change_type: string | null; portfolio_name: string;
   raised_by_name: string | null; sponsor_name: string | null;
@@ -38,6 +39,9 @@ interface DemandDetail {
   claimed_cost: number | null; claimed_benefit: number | null;
   assessment: Assessment | null;
   triaged_at: string | null; triage_notes: string | null; triaged_by_name: string | null;
+  stop_reason: string | null; stopped_at: string | null; stopped_by_name: string | null;
+  delivering_sub_portfolio_name: string | null; delivering_parent_portfolio_name: string | null;
+  delivering_sub_portfolio_id: string | null;
   criteria: Criterion[]; raci: Raci | null; scores: Score[]; priority: Priority;
   strategyLinks: StrategyLink[];
   businessCaseId: string | null;
@@ -68,6 +72,11 @@ export function DemandDetail() {
   const [triageNotes, setTriageNotes] = useState('');
   const [triageError, setTriageError] = useState<string | null>(null);
 
+  const [showStop, setShowStop] = useState(false);
+  const [stopReason, setStopReason] = useState('');
+  const [stopError, setStopError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+
   function load() {
     if (!id) return;
     setLoading(true);
@@ -93,18 +102,18 @@ export function DemandDetail() {
     }
   }
 
-  async function submitTriageDecision(decision: 'accepted' | 'rejected') {
+  async function submitTriageDecision() {
     if (!id) return;
     setTriageError(null);
     if (!complexityTier || !costTier) {
-      setTriageError('Complexity and cost must both be assessed before a decision can be recorded');
+      setTriageError('Complexity and cost must both be assessed before accepting');
       return;
     }
     setUpdating(true);
     try {
       await apiFetch(`/api/demands/${id}/triage`, {
         method: 'POST',
-        body: JSON.stringify({ decision, complexityTier, costTier, notes: triageNotes || undefined }),
+        body: JSON.stringify({ complexityTier, costTier, notes: triageNotes || undefined }),
       });
       load();
     } catch (err) {
@@ -114,15 +123,87 @@ export function DemandDetail() {
     }
   }
 
+  // Stopping is available from any pre-promotion stage - raised,
+  // accepted, or assessed - not just at triage. The reason is what
+  // carries the nuance ("not the right time" vs "doesn't stack up"),
+  // not which status word gets set.
+  async function submitStop() {
+    if (!id) return;
+    setStopError(null);
+    if (!stopReason.trim()) {
+      setStopError('A reason is required to stop this demand');
+      return;
+    }
+    setStopping(true);
+    try {
+      await apiFetch(`/api/demands/${id}/stop`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: stopReason }),
+      });
+      setShowStop(false);
+      setStopReason('');
+      load();
+    } catch (err) {
+      setStopError(err instanceof Error ? err.message : 'Failed to stop this demand');
+    } finally {
+      setStopping(false);
+    }
+  }
+
   if (loading) return <p>Loading...</p>;
   if (error) return <p className="login-error">{error}</p>;
   if (!demand) return <p>Not found.</p>;
+
+  // Rendered inline next to each stage's real primary action (Accept,
+  // Assess, Promote) rather than as one isolated control elsewhere on
+  // the page - stopping needs to be a visible option AT the point of
+  // deciding what happens next, not a separate afterthought lower down.
+  // Plain JSX consts, not nested components - a function defined inside
+  // render gets a new identity every render, which would remount the
+  // textarea below and drop focus on every keystroke.
+  const stopButton = (
+    <button
+      onClick={() => { setShowStop((s) => !s); setStopError(null); }}
+      className="btn btn--outline" style={{ fontSize: 12.5 }}
+    >
+      {showStop ? 'Cancel stop' : 'Stop this demand'}
+    </button>
+  );
+
+  const stopForm = showStop && (
+    <div className="goal-card" style={{ marginTop: 10 }}>
+      <div className="goal-card__meta" style={{ marginBottom: 8 }}>Stop this demand</div>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 0, marginBottom: 10 }}>
+        Stopping isn't a verdict on the idea - it just means it's not moving forward right now.
+        The reason is what future readers will actually use, so make it a real one.
+      </p>
+      <div className="login-field" style={{ marginBottom: 0 }}>
+        <label>Reason</label>
+        <textarea rows={3} value={stopReason} onChange={(e) => setStopReason(e.target.value)}
+          placeholder="e.g. not the right time, superseded by another demand, doesn't stack up financially..."
+          style={{ width: '100%', padding: 10, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 14, resize: 'vertical' }} />
+      </div>
+      {stopError && <p className="login-error" style={{ marginTop: 10 }}>{stopError}</p>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button onClick={submitStop} disabled={stopping} className="btn btn--outline" style={{ fontSize: 12.5, padding: '7px 14px' }}>
+          {stopping ? 'Stopping...' : 'Confirm stop'}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ maxWidth: 660 }}>
       <Link to="/demand" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
 
-      <h1 className="page-title" style={{ marginTop: 12 }}>{demand.title}</h1>
+      <h1 className="page-title" style={{ marginTop: 12 }}>
+        {demand.title}
+        {demand.confidential && (
+          <span className="pill pill--indigo" style={{ marginLeft: 10, verticalAlign: 'middle', fontSize: 11 }}>
+            Confidential
+          </span>
+        )}
+      </h1>
       <p className="page-subtitle">
         {demand.portfolio_name} (raised)
         {demand.raised_by_name && <> &middot; conceived by {demand.raised_by_name}</>}
@@ -296,6 +377,16 @@ export function DemandDetail() {
         </div>
       )}
 
+      {demand.status === 'stopped' && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem', border: '1.5px solid var(--hairline)' }}>
+          <div className="goal-card__meta">Stopped</div>
+          <div className="goal-card__desc" style={{ marginTop: 6 }}>{demand.stop_reason}</div>
+          <div className="goal-card__meta" style={{ marginTop: 8 }}>
+            {demand.stopped_by_name ?? 'unknown'}{demand.stopped_at ? ` \u00b7 ${new Date(demand.stopped_at).toLocaleDateString()}` : ''}
+          </div>
+        </div>
+      )}
+
       <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
         <div className="goal-card__meta">Problem statement</div>
         <div className="goal-card__desc" style={{ marginTop: 8 }}>{demand.description}</div>
@@ -402,29 +493,36 @@ export function DemandDetail() {
           {triageError && <p className="login-error" style={{ marginTop: 10 }}>{triageError}</p>}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button onClick={() => submitTriageDecision('accepted')} disabled={updating} className="btn btn--project">
+            <button onClick={() => submitTriageDecision()} disabled={updating} className="btn btn--project">
               Accept
             </button>
-            <button onClick={() => submitTriageDecision('rejected')} disabled={updating} className="btn btn--outline">
-              Reject
-            </button>
+            {stopButton}
           </div>
+          {stopForm}
         </div>
       )}
 
       {demand.status === 'accepted' && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link to={`/demand/${demand.id}/assess`} className="btn btn--project" style={{ textDecoration: 'none' }}>
-            Assess (P75)
-          </Link>
+        <div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link to={`/demand/${demand.id}/assess`} className="btn btn--project" style={{ textDecoration: 'none' }}>
+              Assess (P75)
+            </Link>
+            {stopButton}
+          </div>
+          {stopForm}
         </div>
       )}
 
       {demand.status === 'assessed' && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link to={`/demand/${demand.id}/accept`} className="btn btn--project" style={{ textDecoration: 'none' }}>
-            Build RACI and formally promote
-          </Link>
+        <div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link to={`/demand/${demand.id}/accept`} className="btn btn--project" style={{ textDecoration: 'none' }}>
+              Build RACI and formally promote
+            </Link>
+            {stopButton}
+          </div>
+          {stopForm}
         </div>
       )}
 
@@ -433,6 +531,7 @@ export function DemandDetail() {
           View business case
         </Link>
       )}
+
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
 
@@ -14,7 +14,8 @@ class IncompleteScoring extends Error {
 
 // ---------- List ----------
 router.get('/demands', requireAuth, async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId, permissions } = req.user!;
+  const canViewConfidential = permissions.includes('demand.view_confidential');
 
   try {
     const demands = await withTenantContext(organizationId, async (client) => {
@@ -22,16 +23,21 @@ router.get('/demands', requireAuth, async (req, res) => {
         `SELECT d.id, d.title, d.status, d.raised_date, d.need_by_date,
                 d.complexity_tier, d.cost_tier, d.date_driver_type,
                 d.claimed_cost, d.claimed_benefit,
+                d.stopped_at, d.confidential,
                 a.assessed_cost, a.assessed_benefit,
                 p.id AS portfolio_id, p.name AS portfolio_name,
                 sub.id AS delivering_sub_portfolio_id, sub.name AS delivering_sub_portfolio_name,
-                COALESCE(pv.weighted_score, 0) AS weighted_score
+                COALESCE(pv.weighted_score, 0) AS weighted_score,
+                bc.id AS business_case_id, bc.decision AS business_case_decision
          FROM demand d
          JOIN portfolio p ON p.id = d.portfolio_id
          LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
          LEFT JOIN demand_priority_view pv ON pv.demand_id = d.id
          LEFT JOIN demand_assessment a ON a.demand_id = d.id
-         ORDER BY d.raised_date DESC`
+         LEFT JOIN business_case bc ON bc.demand_id = d.id
+         WHERE d.confidential = false OR d.raised_by = $1 OR $2
+         ORDER BY d.raised_date DESC`,
+        [userId, canViewConfidential]
       );
       return result.rows;
     });
@@ -45,7 +51,7 @@ router.get('/demands', requireAuth, async (req, res) => {
 
 // ---------- Detail ----------
 router.get('/demands/:id', requireAuth, async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId, permissions } = req.user!;
   const { id } = req.params;
 
   try {
@@ -54,15 +60,18 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
         `SELECT d.id, d.title, d.description, d.outcome_statement, d.status,
                 d.raised_date, d.need_by_date, d.accepted_at, d.adoption_change_type,
                 d.complexity_tier, d.cost_tier, d.triaged_at, d.triage_notes,
+                d.stop_reason, d.stopped_at,
                 d.date_driver_type, d.date_driver_detail,
                 d.claimed_cost, d.claimed_benefit,
+                d.confidential, d.raised_by,
                 p.name AS portfolio_name,
                 sub.name AS delivering_sub_portfolio_name,
                 subparent.name AS delivering_parent_portfolio_name,
                 d.delivering_sub_portfolio_id,
                 conceiver.display_name AS raised_by_name,
                 sponsor.display_name AS sponsor_name,
-                triager.display_name AS triaged_by_name
+                triager.display_name AS triaged_by_name,
+                stopper.display_name AS stopped_by_name
          FROM demand d
          JOIN portfolio p ON p.id = d.portfolio_id
          LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
@@ -70,12 +79,20 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
          LEFT JOIN app_user conceiver ON conceiver.id = d.raised_by
          LEFT JOIN app_user sponsor ON sponsor.id = d.sponsor_user_id
          LEFT JOIN app_user triager ON triager.id = d.triaged_by
+         LEFT JOIN app_user stopper ON stopper.id = d.stopped_by
          WHERE d.id = $1`,
         [id]
       );
 
       const demand = demandResult.rows[0];
       if (!demand) return null;
+
+      // Confidential demand is invisible to anyone who isn't its raiser
+      // and lacks demand.view_confidential - 404, not 403, so a lookup
+      // doesn't even confirm the demand exists to someone who shouldn't
+      // see it.
+      const canView = !demand.confidential || demand.raised_by === userId || permissions.includes('demand.view_confidential');
+      if (!canView) return null;
 
       const criteriaResult = await client.query(
         `SELECT id, name, dimension, unit, baseline_value, target_value
@@ -162,12 +179,17 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
 // Not required at raise - assigned later, typically at assessment, and
 // changeable up to planning. Every change is logged, consistent with
 // budget transfers being recorded events rather than silent edits.
+//
+// Gated on demand.assess: this was previously open to ANY authenticated
+// user regardless of role or the demand's stage - a real gap, since
+// reassigning who delivers something is exactly the kind of call the
+// Submitter baseline shouldn't be able to make on someone else's demand.
 const assignSubPortfolioSchema = z.object({
   subPortfolioId: looseUuid().nullable(),
   reason: z.string().optional(),
 });
 
-router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, async (req, res) => {
+router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, requirePermission('demand.assess'), async (req, res) => {
   const parsed = assignSubPortfolioSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -244,6 +266,7 @@ const createDemandSchema = z.object({
   dateDriverDetail: z.string().optional(),
   claimedCost: z.number().min(0, 'Give your best estimate of cost'),
   claimedBenefit: z.number().min(0, 'Give your best estimate of benefit'),
+  confidential: z.boolean().optional().default(false),
   criteria: z.array(criterionSchema).min(1, 'Add at least one success measure'),
   scores: z.array(scoreSchema).min(1, 'Priority scoring is required'),
   strategicGoalId: looseUuid().optional(),
@@ -259,7 +282,7 @@ router.post('/demands', requireAuth, async (req, res) => {
   const {
     title, description, outcomeStatement, portfolioId, sponsorUserId, needByDate,
     adoptionChangeType, dateDriverType, dateDriverDetail, claimedCost, claimedBenefit,
-    criteria, scores, strategicGoalId, alignmentNotes,
+    confidential, criteria, scores, strategicGoalId, alignmentNotes,
   } = parsed.data;
   const { userId, organizationId } = req.user!;
 
@@ -282,12 +305,12 @@ router.post('/demands', requireAuth, async (req, res) => {
            (id, organization_id, portfolio_id, title, description, outcome_statement,
             raised_by, sponsor_user_id, need_by_date, raised_date, size_tier, status,
             adoption_change_type, date_driver_type, date_driver_detail,
-            claimed_cost, claimed_benefit)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, 'unsized', 'raised', $9, $10, $11, $12, $13)
+            claimed_cost, claimed_benefit, confidential)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, 'unsized', 'raised', $9, $10, $11, $12, $13, $14)
          RETURNING id, title, status, raised_date`,
         [organizationId, portfolioId, title, description, outcomeStatement, userId, sponsorUserId,
          needByDate ?? null, adoptionChangeType ?? null, dateDriverType ?? 'none', dateDriverDetail ?? null,
-         claimedCost, claimedBenefit]
+         claimedCost, claimedBenefit, confidential]
       );
 
       const newDemand = demandResult.rows[0];
@@ -335,23 +358,24 @@ router.post('/demands', requireAuth, async (req, res) => {
 });
 
 // ---------- Triage decision: Accept or Reject, with required assessment ----------
-// Complexity and cost tiers are captured HERE, at the point of decision -
-// not before, and not optionally. Both outcomes (accepted/rejected)
-// require the assessment to have actually happened, not just a status flip.
+// Complexity and cost tiers are captured HERE, at the point of accepting -
+// not before, and not optionally. Triage now only ever moves a demand
+// forward to 'accepted' - killing a demand, at any stage, goes through
+// the separate /stop action below instead. Sizing something you've
+// decided not to do never made sense as a required field anyway.
 const triageDecisionSchema = z.object({
-  decision: z.enum(['accepted', 'rejected']),
   complexityTier: z.enum(['high', 'medium', 'low']),
   costTier: z.enum(['high', 'medium', 'low']),
   notes: z.string().optional(),
 });
 
-router.post('/demands/:id/triage', requireAuth, async (req, res) => {
+router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage'), async (req, res) => {
   const parsed = triageDecisionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { decision, complexityTier, costTier, notes } = parsed.data;
+  const { complexityTier, costTier, notes } = parsed.data;
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
@@ -365,11 +389,11 @@ router.post('/demands/:id/triage', requireAuth, async (req, res) => {
 
       const updated = await client.query(
         `UPDATE demand
-         SET status = $1, complexity_tier = $2, cost_tier = $3,
-             triaged_by = $4, triaged_at = now(), triage_notes = $5
-         WHERE id = $6
+         SET status = 'accepted', complexity_tier = $1, cost_tier = $2,
+             triaged_by = $3, triaged_at = now(), triage_notes = $4
+         WHERE id = $5
          RETURNING id, title, status, complexity_tier, cost_tier`,
-        [decision, complexityTier, costTier, userId, notes ?? null, id]
+        [complexityTier, costTier, userId, notes ?? null, id]
       );
 
       return { demand: updated.rows[0] };
@@ -402,7 +426,7 @@ const assessmentSchema = z.object({
   recommendation: z.enum(['proceed', 'stop', 'no_recommendation']),
 });
 
-router.post('/demands/:id/assessment', requireAuth, async (req, res) => {
+router.post('/demands/:id/assessment', requireAuth, requirePermission('demand.assess'), async (req, res) => {
   const parsed = assessmentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -449,31 +473,34 @@ router.post('/demands/:id/assessment', requireAuth, async (req, res) => {
   }
 });
 
-// ---------- Stop a demand after assessment ----------
-// Distinct from a triage rejection: 'rejected' means the idea wasn't
-// worth pursuing; 'stopped' means the economics collapsed once someone
-// actually looked. Different portfolio signals, recorded differently.
+// ---------- Stop a demand ----------
+// Reachable from ANY pre-promotion stage - raised, accepted, or
+// assessed. This is now the single kill action for demand that hasn't
+// reached a business case yet; the previous 'rejected' (triage-only)
+// status is gone. The distinction that used to live in the status word
+// now lives in the reason: "not the right time" and "economics don't
+// work" are both just a stop_reason, not different statuses.
 const stopSchema = z.object({ reason: z.string().min(1, 'A reason is required to stop a demand') });
 
-router.post('/demands/:id/stop', requireAuth, async (req, res) => {
+router.post('/demands/:id/stop', requireAuth, requirePermission('demand.triage'), async (req, res) => {
   const parsed = stopSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
     const updated = await withTenantContext(organizationId, async (client) => {
       const result = await client.query(
-        `UPDATE demand SET status = 'stopped', triage_notes = COALESCE(triage_notes, '') || $1
-         WHERE id = $2 AND status IN ('accepted', 'assessed')
+        `UPDATE demand SET status = 'stopped', stop_reason = $1, stopped_by = $2, stopped_at = now()
+         WHERE id = $3 AND status IN ('raised', 'accepted', 'assessed')
          RETURNING id, title, status`,
-        [`\n[Stopped at assessment] ${parsed.data.reason}`, id]
+        [parsed.data.reason, userId, id]
       );
       return result.rows[0];
     });
 
-    if (!updated) return res.status(409).json({ error: 'Only an accepted or assessed demand can be stopped' });
+    if (!updated) return res.status(409).json({ error: 'This demand cannot be stopped from its current status' });
     res.json(updated);
   } catch (err) {
     console.error('Failed to stop demand:', err);

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { apiFetch } from '../lib/apiClient';
+import { apiFetch, apiDownload } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface Raci {
   accountable_financial_name: string; accountable_scope_name: string;
@@ -8,18 +9,52 @@ interface Raci {
 }
 interface Investment { approved_amount: number | null; actual_spend_to_date: number | null; }
 interface Benefit { id: string; title: string; benefit_type: string; claimed_value: number | null; status: string; owner_name: string | null; }
+interface StrategicGoal { goal_name: string; goal_year: number; alignment_notes: string | null; }
+interface Estimate {
+  claimed_cost: number | null; claimed_benefit: number | null;
+  assessed_cost: number | null; assessed_benefit: number | null;
+  cost_confidence: string | null; benefit_confidence: string | null;
+}
+interface Risk {
+  id: string; description: string; category: string; likelihood: string; impact: string;
+  mitigation: string | null; status: string; created_at: string; owner_name: string | null;
+}
+interface Governance {
+  required_approvers: string[];
+  required_documents: string[];
+  highest_tier_name: string | null;
+  highest_tier_threshold: number | null;
+  requiresFinanceImpactAssessment: boolean;
+}
+interface FinanceImpactAssessment {
+  id: string;
+  funding_source: string | null;
+  cost_centre: string | null;
+  capex_amount: number | null;
+  opex_amount: number | null;
+  ongoing_annual_cost: number | null;
+  funding_period_months: number | null;
+  financial_narrative: string | null;
+  status: 'draft' | 'completed';
+  prepared_at: string | null;
+  prepared_by_name: string | null;
+}
 
 interface BusinessCase {
   id: string; title: string; requested_spend: number | null;
   decision: string | null; decision_date: string | null;
   portfolio_name: string; sponsor_name: string | null; submitted_by_name: string | null;
+  executive_summary: string | null; problem_statement: string | null;
   raci: Raci | null; investment: Investment | null; benefits: Benefit[];
+  strategicGoal: StrategicGoal | null; estimate: Estimate | null; risks: Risk[];
+  governance: Governance; financeImpactAssessment: FinanceImpactAssessment | null;
 }
 
 interface User { id: string; display_name: string; }
 
 export function BusinessCaseDetail() {
   const { id } = useParams();
+  const { has } = usePermissions();
   const [bc, setBc] = useState<BusinessCase | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +63,29 @@ export function BusinessCaseDetail() {
   const [requestedSpend, setRequestedSpend] = useState('');
   const [approvedAmount, setApprovedAmount] = useState('');
   const [actualSpend, setActualSpend] = useState('');
+
+  const [executiveSummary, setExecutiveSummary] = useState('');
+  const [problemStatement, setProblemStatement] = useState('');
+  const [savingNarrative, setSavingNarrative] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const [showAddRisk, setShowAddRisk] = useState(false);
+  const [riskDescription, setRiskDescription] = useState('');
+  const [riskCategory, setRiskCategory] = useState<'delivery' | 'business'>('delivery');
+  const [riskLikelihood, setRiskLikelihood] = useState<'low' | 'medium' | 'high'>('medium');
+  const [riskImpact, setRiskImpact] = useState<'low' | 'medium' | 'high'>('medium');
+  const [riskMitigation, setRiskMitigation] = useState('');
+  const [riskOwner, setRiskOwner] = useState('');
+  const [addingRisk, setAddingRisk] = useState(false);
+
+  const [fiaFundingSource, setFiaFundingSource] = useState('');
+  const [fiaCostCentre, setFiaCostCentre] = useState('');
+  const [fiaCapex, setFiaCapex] = useState('');
+  const [fiaOpex, setFiaOpex] = useState('');
+  const [fiaOngoingCost, setFiaOngoingCost] = useState('');
+  const [fiaFundingPeriod, setFiaFundingPeriod] = useState('');
+  const [fiaNarrative, setFiaNarrative] = useState('');
+  const [savingFia, setSavingFia] = useState(false);
 
   const [showAddBenefit, setShowAddBenefit] = useState(false);
   const [benefitTitle, setBenefitTitle] = useState('');
@@ -45,6 +103,18 @@ export function BusinessCaseDetail() {
         setRequestedSpend(data.requested_spend?.toString() ?? '');
         setApprovedAmount(data.investment?.approved_amount?.toString() ?? '');
         setActualSpend(data.investment?.actual_spend_to_date?.toString() ?? '');
+        setExecutiveSummary(data.executive_summary ?? '');
+        setProblemStatement(data.problem_statement ?? '');
+        if (data.financeImpactAssessment) {
+          const fia = data.financeImpactAssessment;
+          setFiaFundingSource(fia.funding_source ?? '');
+          setFiaCostCentre(fia.cost_centre ?? '');
+          setFiaCapex(fia.capex_amount?.toString() ?? '');
+          setFiaOpex(fia.opex_amount?.toString() ?? '');
+          setFiaOngoingCost(fia.ongoing_annual_cost?.toString() ?? '');
+          setFiaFundingPeriod(fia.funding_period_months?.toString() ?? '');
+          setFiaNarrative(fia.financial_narrative ?? '');
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -117,6 +187,98 @@ export function BusinessCaseDetail() {
     }
   }
 
+  async function saveNarrative() {
+    if (!id) return;
+    setSavingNarrative(true);
+    try {
+      await apiFetch(`/api/business-cases/${id}/narrative`, {
+        method: 'PATCH',
+        body: JSON.stringify({ executiveSummary, problemStatement }),
+      });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSavingNarrative(false);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!id || !bc) return;
+    setDownloading(true);
+    try {
+      await apiDownload(`/api/business-cases/${id}/export.pdf`, `${bc.title || 'business-case'}-summary.pdf`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download PDF');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleAddRisk(e: FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setAddingRisk(true);
+    try {
+      await apiFetch(`/api/business-cases/${id}/risks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          description: riskDescription,
+          category: riskCategory,
+          likelihood: riskLikelihood,
+          impact: riskImpact,
+          mitigation: riskMitigation || undefined,
+          ownerUserId: riskOwner || undefined,
+        }),
+      });
+      setRiskDescription(''); setRiskMitigation(''); setRiskOwner('');
+      setRiskCategory('delivery'); setRiskLikelihood('medium'); setRiskImpact('medium');
+      setShowAddRisk(false);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add risk');
+    } finally {
+      setAddingRisk(false);
+    }
+  }
+
+  async function updateRiskStatus(riskId: string, status: string) {
+    if (!id) return;
+    try {
+      await apiFetch(`/api/business-cases/${id}/risks/${riskId}`, {
+        method: 'PATCH', body: JSON.stringify({ status }),
+      });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update risk');
+    }
+  }
+
+  async function saveFia(status: 'draft' | 'completed') {
+    if (!id) return;
+    setSavingFia(true);
+    try {
+      await apiFetch(`/api/business-cases/${id}/finance-impact-assessment`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          fundingSource: fiaFundingSource || undefined,
+          costCentre: fiaCostCentre || undefined,
+          capexAmount: fiaCapex ? Number(fiaCapex) : undefined,
+          opexAmount: fiaOpex ? Number(fiaOpex) : undefined,
+          ongoingAnnualCost: fiaOngoingCost ? Number(fiaOngoingCost) : undefined,
+          fundingPeriodMonths: fiaFundingPeriod ? Number(fiaFundingPeriod) : undefined,
+          financialNarrative: fiaNarrative || undefined,
+          status,
+        }),
+      });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save finance impact assessment');
+    } finally {
+      setSavingFia(false);
+    }
+  }
+
   if (loading) return <p>Loading...</p>;
   if (error) return <p className="login-error">{error}</p>;
   if (!bc) return <p>Not found.</p>;
@@ -130,7 +292,12 @@ export function BusinessCaseDetail() {
         <Link to={`/demand`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
       )}
 
-      <h1 className="page-title" style={{ marginTop: 12 }}>{bc.title}</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 12 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>{bc.title}</h1>
+        <button onClick={downloadPdf} disabled={downloading} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}>
+          {downloading ? 'Preparing...' : 'Download PDF'}
+        </button>
+      </div>
       <p className="page-subtitle">
         {bc.portfolio_name}
         {bc.sponsor_name && <> &middot; sponsor {bc.sponsor_name}</>}
@@ -145,6 +312,69 @@ export function BusinessCaseDetail() {
         </div>
       )}
 
+      <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+        <div className="goal-card__meta" style={{ marginBottom: 8 }}>Executive summary</div>
+        <textarea
+          value={executiveSummary}
+          onChange={(e) => setExecutiveSummary(e.target.value)}
+          rows={4}
+          placeholder="Concise overview - key outcomes, costs and benefits, decision required."
+          style={{ ...inputStyle, resize: 'vertical' }}
+        />
+        <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 8 }}>Problem / opportunity statement</div>
+        <textarea
+          value={problemStatement}
+          onChange={(e) => setProblemStatement(e.target.value)}
+          rows={4}
+          placeholder="What issue or gap exists today, and why it matters."
+          style={{ ...inputStyle, resize: 'vertical' }}
+        />
+        {has('business_case.edit') && (
+          <button onClick={saveNarrative} disabled={savingNarrative} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px', marginTop: 10 }}>
+            {savingNarrative ? 'Saving...' : 'Save'}
+          </button>
+        )}
+      </div>
+
+      <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+        <div className="goal-card__meta" style={{ marginBottom: 8 }}>Strategic alignment</div>
+        {bc.strategicGoal ? (
+          <div style={{ fontSize: 13 }}>
+            <div><strong>{bc.strategicGoal.goal_name}</strong> ({bc.strategicGoal.goal_year})</div>
+            {bc.strategicGoal.alignment_notes && (
+              <div style={{ color: 'var(--muted)', marginTop: 4 }}>{bc.strategicGoal.alignment_notes}</div>
+            )}
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>Not linked to a declared strategic goal.</p>
+        )}
+      </div>
+
+      {bc.estimate && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="goal-card__meta" style={{ marginBottom: 8 }}>Financial position (anchored estimate)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13 }}>
+            <div>
+              <div style={{ color: 'var(--muted)', fontSize: 11 }}>Claimed at raise (P50)</div>
+              <div>Cost: {bc.estimate.claimed_cost != null ? `GBP ${Number(bc.estimate.claimed_cost).toLocaleString()}` : '—'}</div>
+              <div>Benefit: {bc.estimate.claimed_benefit != null ? `GBP ${Number(bc.estimate.claimed_benefit).toLocaleString()}` : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--muted)', fontSize: 11 }}>Assessed (P75)</div>
+              <div>Cost: {bc.estimate.assessed_cost != null ? `GBP ${Number(bc.estimate.assessed_cost).toLocaleString()}` : '—'}
+                {bc.estimate.cost_confidence && <span className="pill pill--muted" style={{ marginLeft: 6, fontSize: 10 }}>{bc.estimate.cost_confidence}</span>}
+              </div>
+              <div>Benefit: {bc.estimate.assessed_benefit != null ? `GBP ${Number(bc.estimate.assessed_benefit).toLocaleString()}` : '—'}
+                {bc.estimate.benefit_confidence && <span className="pill pill--muted" style={{ marginLeft: 6, fontSize: 10 }}>{bc.estimate.benefit_confidence}</span>}
+              </div>
+            </div>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>
+            Read from the demand's raise and assessment stages - the original claim is never overwritten here.
+          </p>
+        </div>
+      )}
+
       {bc.raci && (
         <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
           <div className="goal-card__meta" style={{ marginBottom: 8 }}>RACI (named at demand acceptance)</div>
@@ -155,6 +385,79 @@ export function BusinessCaseDetail() {
             <div><strong>Sponsor:</strong> {bc.raci.sponsor_name}</div>
             <div><strong>Benefit Owner:</strong> {bc.raci.benefit_owner_name}</div>
           </div>
+        </div>
+      )}
+
+      <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+        <div className="goal-card__meta" style={{ marginBottom: 8 }}>
+          Governance requirements {bc.governance.highest_tier_name && `- ${bc.governance.highest_tier_name}`}
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+          Based on requested spend. Cumulative - includes everything from lower tiers too.
+          This is a checklist, not a gate: it doesn't block approval or submission.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, fontSize: 13 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Required approvers</div>
+            {bc.governance.required_approvers.length > 0 ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {bc.governance.required_approvers.map((a) => <span key={a} className="pill pill--indigo">{a}</span>)}
+              </div>
+            ) : <span style={{ color: 'var(--muted)' }}>None configured</span>}
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Required documents</div>
+            {bc.governance.required_documents.length > 0 ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {bc.governance.required_documents.map((d) => <span key={d} className="pill pill--muted">{d}</span>)}
+              </div>
+            ) : <span style={{ color: 'var(--muted)' }}>None configured</span>}
+          </div>
+        </div>
+      </div>
+
+      {bc.governance.requiresFinanceImpactAssessment && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div className="goal-card__meta">Finance impact assessment</div>
+            {bc.financeImpactAssessment && (
+              <span className={`pill ${bc.financeImpactAssessment.status === 'completed' ? 'pill--teal' : 'pill--muted'}`} style={{ textTransform: 'capitalize' }}>
+                {bc.financeImpactAssessment.status}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Funding source</label>
+              <input type="text" value={fiaFundingSource} onChange={(e) => setFiaFundingSource(e.target.value)} style={inputStyle} /></div>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Cost centre</label>
+              <input type="text" value={fiaCostCentre} onChange={(e) => setFiaCostCentre(e.target.value)} style={inputStyle} /></div>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Capex (GBP)</label>
+              <input type="number" value={fiaCapex} onChange={(e) => setFiaCapex(e.target.value)} style={inputStyle} /></div>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Opex (GBP)</label>
+              <input type="number" value={fiaOpex} onChange={(e) => setFiaOpex(e.target.value)} style={inputStyle} /></div>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Ongoing annual cost (GBP)</label>
+              <input type="number" value={fiaOngoingCost} onChange={(e) => setFiaOngoingCost(e.target.value)} style={inputStyle} /></div>
+            <div className="login-field" style={{ marginBottom: 0 }}><label>Funding period (months)</label>
+              <input type="number" value={fiaFundingPeriod} onChange={(e) => setFiaFundingPeriod(e.target.value)} style={inputStyle} /></div>
+          </div>
+          <div className="login-field" style={{ marginTop: 10 }}><label>Financial narrative</label>
+            <textarea value={fiaNarrative} onChange={(e) => setFiaNarrative(e.target.value)} rows={4} style={{ ...inputStyle, resize: 'vertical' }} /></div>
+          {has('business_case.edit') && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button onClick={() => saveFia('draft')} disabled={savingFia} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px' }}>
+                {savingFia ? 'Saving...' : 'Save draft'}
+              </button>
+              <button onClick={() => saveFia('completed')} disabled={savingFia} className="btn btn--project" style={{ fontSize: 12, padding: '6px 12px' }}>
+                Mark completed
+              </button>
+            </div>
+          )}
+          {bc.financeImpactAssessment?.status === 'completed' && bc.financeImpactAssessment.prepared_by_name && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+              Completed by {bc.financeImpactAssessment.prepared_by_name}
+              {bc.financeImpactAssessment.prepared_at && ` on ${new Date(bc.financeImpactAssessment.prepared_at).toLocaleDateString()}`}
+            </div>
+          )}
         </div>
       )}
 
@@ -221,6 +524,72 @@ export function BusinessCaseDetail() {
         {bc.benefits.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>No benefits recorded yet.</p>}
       </div>
 
+      <div style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div className="goal-card__meta">Risk assessment</div>
+          {has('business_case.edit') && (
+            <button onClick={() => setShowAddRisk((s) => !s)} className="btn btn--outline" style={{ fontSize: 12, padding: '4px 10px' }}>+ Add risk</button>
+          )}
+        </div>
+
+        {showAddRisk && (
+          <form onSubmit={handleAddRisk} className="goal-card" style={{ marginBottom: 8 }}>
+            <div className="login-field"><label>Description</label>
+              <input type="text" value={riskDescription} onChange={(e) => setRiskDescription(e.target.value)} required /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div className="login-field" style={{ marginBottom: 0 }}><label>Category</label>
+                <select value={riskCategory} onChange={(e) => setRiskCategory(e.target.value as 'delivery' | 'business')} style={inputStyle}>
+                  <option value="delivery">Delivery</option>
+                  <option value="business">Business</option>
+                </select></div>
+              <div className="login-field" style={{ marginBottom: 0 }}><label>Likelihood</label>
+                <select value={riskLikelihood} onChange={(e) => setRiskLikelihood(e.target.value as 'low' | 'medium' | 'high')} style={inputStyle}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select></div>
+              <div className="login-field" style={{ marginBottom: 0 }}><label>Impact</label>
+                <select value={riskImpact} onChange={(e) => setRiskImpact(e.target.value as 'low' | 'medium' | 'high')} style={inputStyle}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select></div>
+            </div>
+            <div className="login-field"><label>Mitigation (optional)</label>
+              <input type="text" value={riskMitigation} onChange={(e) => setRiskMitigation(e.target.value)} /></div>
+            <div className="login-field"><label>Owner (optional)</label>
+              <select value={riskOwner} onChange={(e) => setRiskOwner(e.target.value)} style={inputStyle}>
+                <option value="">Unassigned</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+              </select></div>
+            <button type="submit" disabled={addingRisk} className="btn btn--project" style={{ marginTop: 10 }}>
+              {addingRisk ? 'Adding...' : 'Add risk'}
+            </button>
+          </form>
+        )}
+
+        {bc.risks.map((r) => (
+          <div key={r.id} className="goal-card" style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{r.description}</span>
+              <select value={r.status} onChange={(e) => updateRiskStatus(r.id, e.target.value)}
+                style={{ fontSize: 11, padding: '2px 6px', border: '1px solid var(--hairline)', borderRadius: 6 }}>
+                <option value="open">Open</option>
+                <option value="mitigated">Mitigated</option>
+                <option value="accepted">Accepted</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div className="goal-card__meta" style={{ marginTop: 4 }}>
+              {r.category} &middot; likelihood {r.likelihood} &middot; impact {r.impact}
+              {r.owner_name && <> &middot; owner: {r.owner_name}</>}
+            </div>
+            {r.mitigation && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Mitigation: {r.mitigation}</div>}
+          </div>
+        ))}
+        {bc.risks.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>No risks recorded yet.</p>}
+      </div>
+
       {bc.investment && (
         <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
           <div className="goal-card__meta">Cost-to-benefit read (manual reference only - not yet an automated flag)</div>
@@ -231,7 +600,7 @@ export function BusinessCaseDetail() {
         </div>
       )}
 
-      {!bc.decision && (
+      {!bc.decision && has('business_case.decide') && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => recordDecision('approved')} className="btn btn--project">Approve spend</button>
           <button onClick={() => recordDecision('declined')} className="btn btn--outline">Decline</button>

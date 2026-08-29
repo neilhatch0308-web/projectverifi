@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 
 const router = Router();
@@ -60,7 +60,7 @@ const createGoalSchema = z.object({
   goalYear: z.number().int(),
 });
 
-router.post('/strategic-goals', requireAuth, async (req, res) => {
+router.post('/strategic-goals', requireAuth, requirePermission('org.manage'), async (req, res) => {
   const parsed = createGoalSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -102,7 +102,7 @@ const updateStatusSchema = z.object({
   status: z.enum(['active', 'suspended', 'completed']),
 });
 
-router.patch('/strategic-goals/:id/status', requireAuth, async (req, res) => {
+router.patch('/strategic-goals/:id/status', requireAuth, requirePermission('org.manage'), async (req, res) => {
   const parsed = updateStatusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

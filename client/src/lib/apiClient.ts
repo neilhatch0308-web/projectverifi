@@ -23,6 +23,39 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   return response.json();
 }
 
+// For binary downloads (PDF export, etc.) - same auth pattern as apiFetch,
+// but triggers a browser save instead of parsing JSON. Filename is read
+// from the server's Content-Disposition header when present.
+export async function apiDownload(path: string, fallbackFilename: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Not signed in');
+
+  const token = await user.getIdToken();
+
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(formatApiError(body.error, response.status));
+  }
+
+  const disposition = response.headers.get('Content-Disposition');
+  const match = disposition?.match(/filename="?([^";]+)"?/);
+  const filename = match?.[1] ?? fallbackFilename;
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 // Zod's .flatten() returns { fieldErrors: {...}, formErrors: [...] } - an
 // object, not a string. new Error(objectValue) silently stringifies it to
 // the useless literal "[object Object]". This extracts the real messages
