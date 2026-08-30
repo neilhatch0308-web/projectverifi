@@ -1,15 +1,17 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/apiClient';
 
 interface Budget {
-  portfolio_budget_id: string;
   portfolio_id: string;
   portfolio_name: string;
-  financial_year: number;
-  allocated_amount: number;
-  transferred_in: number;
-  transferred_out: number;
-  effective_amount: number;
+  portfolio_budget_id: string | null;
+  baseline_amount: number | null;
+  baseline_set_at: string | null;
+  baseline_set_by_name: string | null;
+  assigned_amount: number | null;
+  assigned_set_at: string | null;
+  assigned_set_by_name: string | null;
+  current_amount: number;
 }
 
 interface Portfolio { id: string; name: string; }
@@ -19,6 +21,9 @@ interface Transfer {
   amount: number;
   reason: string;
   transferred_at: string;
+  financial_year: number;
+  from_portfolio_id: string;
+  to_portfolio_id: string;
   from_portfolio_name: string;
   to_portfolio_name: string;
   related_demand_title: string | null;
@@ -31,15 +36,21 @@ interface Adjustment {
   new_amount: number;
   reason: string;
   adjusted_at: string;
+  financial_year: number;
+  portfolio_id: string;
   portfolio_name: string;
   adjusted_by_name: string | null;
 }
 
 // A single merged timeline entry, so the audit trail reads as one
 // history rather than two separate lists a reader has to cross-reference.
+// Transfers stay in the merge for any HISTORICAL rows - the feature is
+// retired, but old records are never deleted or hidden.
 type ChangeEntry =
   | { kind: 'adjustment'; at: string; data: Adjustment }
   | { kind: 'transfer'; at: string; data: Transfer };
+
+const inputStyle = { padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, width: '100%' };
 
 export function PortfolioBudgets() {
   const currentYear = new Date().getFullYear();
@@ -51,111 +62,141 @@ export function PortfolioBudgets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [editing, setEditing] = useState<Record<string, string>>({});
-  const [editReason, setEditReason] = useState<Record<string, string>>({});
-  const [showTransfer, setShowTransfer] = useState(false);
-  const [fromPortfolio, setFromPortfolio] = useState('');
-  const [toPortfolio, setToPortfolio] = useState('');
-  const [transferAmount, setTransferAmount] = useState('');
-  const [transferReason, setTransferReason] = useState('');
-  const [savingTransfer, setSavingTransfer] = useState(false);
+  // History filters, deliberately independent of the budget table's
+  // year selector above - the history search shouldn't be limited to
+  // whichever single year the table happens to be showing.
+  const [historyYearFilter, setHistoryYearFilter] = useState('all');
+  const [historyPortfolioFilter, setHistoryPortfolioFilter] = useState('all');
 
-  function load(y: number) {
+  // Draft input state, per portfolio, for the two editable actions
+  const [baselineDraft, setBaselineDraft] = useState<Record<string, string>>({});
+  const [confirmBaselineFor, setConfirmBaselineFor] = useState<{ portfolioId: string; portfolioName: string; amount: number } | null>(null);
+  const [settingBaseline, setSettingBaseline] = useState(false);
+
+  const [assignedDraft, setAssignedDraft] = useState<Record<string, string>>({});
+  const [assignedReason, setAssignedReason] = useState<Record<string, string>>({});
+  const [savingAssigned, setSavingAssigned] = useState<string | null>(null);
+
+  function loadBudgets(y: number) {
     setLoading(true);
-    Promise.all([
-      apiFetch(`/api/portfolio-budgets?year=${y}`),
-      apiFetch(`/api/portfolio-budgets/transfers?year=${y}`),
-      apiFetch(`/api/portfolio-budgets/adjustments?year=${y}`),
-    ])
-      .then(([b, t, a]) => { setBudgets(b); setTransfers(t); setAdjustments(a); })
+    apiFetch(`/api/portfolio-budgets?year=${y}`)
+      .then(setBudgets)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
 
+  // History fetched once, across ALL years - the two filters below
+  // narrow it down client-side, independent of the budget table's year.
+  function loadHistory() {
+    Promise.all([
+      apiFetch('/api/portfolio-budgets/transfers'),
+      apiFetch('/api/portfolio-budgets/adjustments'),
+    ])
+      .then(([t, a]) => { setTransfers(t); setAdjustments(a); })
+      .catch((err) => setError(err.message));
+  }
+
   useEffect(() => { apiFetch('/api/portfolios').then(setPortfolios).catch(() => {}); }, []);
-  useEffect(() => load(year), [year]);
+  useEffect(() => loadBudgets(year), [year]);
+  useEffect(loadHistory, []);
 
-  async function saveBudget(portfolioId: string, isExisting: boolean) {
-    const value = editing[portfolioId];
-    if (value === undefined || value === '') return;
+  // Combined change-triggering reload used by the mutating actions below
+  function load(y: number) {
+    loadBudgets(y);
+    loadHistory();
+  }
 
-    const reason = editReason[portfolioId]?.trim() ?? '';
-    if (isExisting && !reason) {
-      setError('A reason is required when changing an existing budget allocation.');
-      return;
-    }
+  function openBaselineConfirm(portfolioId: string, portfolioName: string) {
+    const raw = baselineDraft[portfolioId];
+    if (raw === undefined || raw === '') return;
+    setConfirmBaselineFor({ portfolioId, portfolioName, amount: Number(raw) });
+  }
 
+  async function confirmSetBaseline() {
+    if (!confirmBaselineFor) return;
+    setSettingBaseline(true);
     try {
-      await apiFetch('/api/portfolio-budgets', {
-        method: 'PUT',
+      await apiFetch('/api/portfolio-budgets/baseline', {
+        method: 'POST',
         body: JSON.stringify({
-          portfolioId,
+          portfolioId: confirmBaselineFor.portfolioId,
           financialYear: year,
-          allocatedAmount: Number(value),
-          reason: isExisting ? reason : undefined,
+          amount: confirmBaselineFor.amount,
         }),
       });
-      setEditing((e) => { const n = { ...e }; delete n[portfolioId]; return n; });
-      setEditReason((e) => { const n = { ...e }; delete n[portfolioId]; return n; });
+      setBaselineDraft((d) => { const n = { ...d }; delete n[confirmBaselineFor.portfolioId]; return n; });
+      setConfirmBaselineFor(null);
       setError(null);
       load(year);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save budget');
+      setError(err instanceof Error ? err.message : 'Failed to set baseline');
+    } finally {
+      setSettingBaseline(false);
     }
   }
 
-  async function submitTransfer(e: FormEvent) {
-    e.preventDefault();
-    setSavingTransfer(true);
+  async function saveAssigned(portfolioId: string) {
+    const raw = assignedDraft[portfolioId];
+    if (raw === undefined || raw === '') return;
+    const reason = assignedReason[portfolioId]?.trim() ?? '';
+    if (!reason) {
+      setError('A reason is required to adjust the assigned budget.');
+      return;
+    }
+
+    setSavingAssigned(portfolioId);
     try {
-      await apiFetch('/api/portfolio-budgets/transfers', {
-        method: 'POST',
-        body: JSON.stringify({
-          financialYear: year,
-          fromPortfolioId: fromPortfolio,
-          toPortfolioId: toPortfolio,
-          amount: Number(transferAmount),
-          reason: transferReason,
-        }),
+      await apiFetch('/api/portfolio-budgets/assigned', {
+        method: 'PATCH',
+        body: JSON.stringify({ portfolioId, financialYear: year, amount: Number(raw), reason }),
       });
-      setFromPortfolio(''); setToPortfolio(''); setTransferAmount(''); setTransferReason('');
-      setShowTransfer(false);
+      setAssignedDraft((d) => { const n = { ...d }; delete n[portfolioId]; return n; });
+      setAssignedReason((r) => { const n = { ...r }; delete n[portfolioId]; return n; });
+      setError(null);
       load(year);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record transfer');
+      setError(err instanceof Error ? err.message : 'Failed to adjust assigned budget');
     } finally {
-      setSavingTransfer(false);
+      setSavingAssigned(null);
     }
   }
 
-  const totalAllocated = budgets.reduce((s, b) => s + Number(b.allocated_amount), 0);
-  const totalEffective = budgets.reduce((s, b) => s + Number(b.effective_amount), 0);
+  const totalBaseline = budgets.reduce((s, b) => s + Number(b.baseline_amount ?? 0), 0);
+  const totalAssigned = budgets.reduce((s, b) => s + Number(b.assigned_amount ?? 0), 0);
+  const totalCurrent = budgets.reduce((s, b) => s + Number(b.current_amount ?? 0), 0);
 
-  // One merged, time-sorted timeline rather than two lists a reader has
-  // to cross-reference - "what changed and why" shouldn't depend on
-  // knowing whether it was an adjustment or a transfer.
   const changeHistory: ChangeEntry[] = [
     ...adjustments.map((a): ChangeEntry => ({ kind: 'adjustment', at: a.adjusted_at, data: a })),
     ...transfers.map((t): ChangeEntry => ({ kind: 'transfer', at: t.transferred_at, data: t })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const inputStyle = { padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, width: '100%' };
-  const selectStyle = { ...inputStyle };
+  // Years actually present in the history, newest first - not just
+  // currentYear-1..+1 like the budget table's selector, since history
+  // can span further back.
+  const historyYears = Array.from(new Set(changeHistory.map((e) =>
+    e.kind === 'adjustment' ? e.data.financial_year : e.data.financial_year
+  ))).sort((a, b) => b - a);
 
-  // Portfolios with no budget row yet for this year
-  const unbudgeted = portfolios.filter((p) => !budgets.some((b) => b.portfolio_id === p.id));
+  const filteredHistory = changeHistory.filter((entry) => {
+    const entryYear = entry.kind === 'adjustment' ? entry.data.financial_year : entry.data.financial_year;
+    const matchesYear = historyYearFilter === 'all' || entryYear === Number(historyYearFilter);
+
+    const matchesPortfolio = historyPortfolioFilter === 'all' || (
+      entry.kind === 'adjustment'
+        ? entry.data.portfolio_id === historyPortfolioFilter
+        : entry.data.from_portfolio_id === historyPortfolioFilter || entry.data.to_portfolio_id === historyPortfolioFilter
+    );
+
+    return matchesYear && matchesPortfolio;
+  });
 
   return (
-    <div style={{ maxWidth: 820 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="page-title">Portfolio Budgets</h1>
-          <p className="page-subtitle">Each portfolio has its own budget line. The corporate envelope is their sum.</p>
-        </div>
-        <button onClick={() => setShowTransfer((s) => !s)} className="btn btn--outline">
-          Move budget between portfolios
-        </button>
-      </div>
+    <div style={{ maxWidth: 860 }}>
+      <h1 className="page-title">Portfolio Budgets</h1>
+      <p className="page-subtitle">
+        Baseline is set once and never changes. Current reflects what's actually committed in Annual
+        Planning. Assigned is the real working budget - adjustable, always with a reason.
+      </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
         <label style={{ fontSize: 13, fontWeight: 600 }}>Financial year</label>
@@ -168,57 +209,25 @@ export function PortfolioBudgets() {
       <div className="goal-card" style={{ marginBottom: '1.25rem', border: '2px solid var(--teal)' }}>
         <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
           <div>
-            <div className="goal-card__meta">Total allocated</div>
+            <div className="goal-card__meta">Total baseline</div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
-              GBP {totalAllocated.toLocaleString()}
+              GBP {totalBaseline.toLocaleString()}
             </div>
           </div>
           <div>
-            <div className="goal-card__meta">Effective after transfers</div>
+            <div className="goal-card__meta">Total current (in Annual Planning)</div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
-              GBP {totalEffective.toLocaleString()}
+              GBP {totalCurrent.toLocaleString()}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-              transfers move money between lines, they never change the total
+          </div>
+          <div>
+            <div className="goal-card__meta">Total assigned</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
+              GBP {totalAssigned.toLocaleString()}
             </div>
           </div>
         </div>
       </div>
-
-      {showTransfer && (
-        <form onSubmit={submitTransfer} className="goal-card" style={{ marginBottom: '1.25rem' }}>
-          <div className="goal-card__meta" style={{ marginBottom: 10 }}>Record a budget transfer</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>From</label>
-              <select value={fromPortfolio} onChange={(e) => setFromPortfolio(e.target.value)} required style={selectStyle}>
-                <option value="">Select</option>
-                {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>To</label>
-              <select value={toPortfolio} onChange={(e) => setToPortfolio(e.target.value)} required style={selectStyle}>
-                <option value="">Select</option>
-                {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Amount (GBP)</label>
-              <input type="number" step="any" min="1" value={transferAmount}
-                onChange={(e) => setTransferAmount(e.target.value)} required style={inputStyle} />
-            </div>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <label style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Reason</label>
-            <input type="text" value={transferReason} onChange={(e) => setTransferReason(e.target.value)}
-              required placeholder="Why is this money moving?" style={inputStyle} />
-          </div>
-          <button type="submit" disabled={savingTransfer} className="btn btn--project" style={{ marginTop: 12 }}>
-            {savingTransfer ? 'Recording...' : 'Record transfer'}
-          </button>
-        </form>
-      )}
 
       {loading && <p>Loading...</p>}
       {error && <p className="login-error">{error}</p>}
@@ -229,79 +238,100 @@ export function PortfolioBudgets() {
             <thead>
               <tr>
                 <th>Portfolio</th>
-                <th style={{ textAlign: 'right' }}>Allocated</th>
-                <th style={{ textAlign: 'right' }}>In</th>
-                <th style={{ textAlign: 'right' }}>Out</th>
-                <th style={{ textAlign: 'right' }}>Effective</th>
+                <th style={{ textAlign: 'right' }}>Baseline</th>
+                <th style={{ textAlign: 'right' }}>Current</th>
+                <th style={{ textAlign: 'right' }}>Assigned</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {budgets.map((b) => (
-                <tr key={b.portfolio_budget_id}>
-                  <td>{b.portfolio_name}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input
-                      type="number" step="any" min="0"
-                      value={editing[b.portfolio_id] ?? Number(b.allocated_amount)}
-                      onChange={(e) => setEditing((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
-                      style={{ ...inputStyle, width: 120, textAlign: 'right' }}
-                    />
-                    {editing[b.portfolio_id] !== undefined && (
-                      <input
-                        type="text" placeholder="Reason for change"
-                        value={editReason[b.portfolio_id] ?? ''}
-                        onChange={(e) => setEditReason((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
-                        style={{ ...inputStyle, width: 160, marginTop: 6, fontSize: 12 }}
-                      />
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'right', color: Number(b.transferred_in) > 0 ? '#0e8f82' : 'var(--muted)' }}>
-                    {Number(b.transferred_in) > 0 ? `+${Number(b.transferred_in).toLocaleString()}` : '-'}
-                  </td>
-                  <td style={{ textAlign: 'right', color: Number(b.transferred_out) > 0 ? '#8a6100' : 'var(--muted)' }}>
-                    {Number(b.transferred_out) > 0 ? `-${Number(b.transferred_out).toLocaleString()}` : '-'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                    {Number(b.effective_amount).toLocaleString()}
-                  </td>
-                  <td>
-                    {editing[b.portfolio_id] !== undefined && (
-                      <button onClick={() => saveBudget(b.portfolio_id, true)} className="btn btn--outline"
-                        style={{ fontSize: 11, padding: '4px 8px' }}>Save</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {unbudgeted.map((p) => (
-                <tr key={p.id} style={{ color: 'var(--muted)' }}>
-                  <td>{p.name}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input
-                      type="number" step="any" min="0" placeholder="0"
-                      value={editing[p.id] ?? ''}
-                      onChange={(e) => setEditing((s) => ({ ...s, [p.id]: e.target.value }))}
-                      style={{ ...inputStyle, width: 120, textAlign: 'right' }}
-                    />
-                  </td>
-                  <td style={{ textAlign: 'right' }}>-</td>
-                  <td style={{ textAlign: 'right' }}>-</td>
-                  <td style={{ textAlign: 'right' }}>not set</td>
-                  <td>
-                    {editing[p.id] !== undefined && editing[p.id] !== '' && (
-                      <button onClick={() => saveBudget(p.id, false)} className="btn btn--outline"
-                        style={{ fontSize: 11, padding: '4px 8px' }}>Save</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {budgets.map((b) => {
+                const hasBaseline = b.baseline_amount !== null;
+                return (
+                  <tr key={b.portfolio_id}>
+                    <td>{b.portfolio_name}</td>
+
+                    <td style={{ textAlign: 'right' }}>
+                      {hasBaseline ? (
+                        <span style={{ fontWeight: 600 }}>{Number(b.baseline_amount).toLocaleString()}</span>
+                      ) : (
+                        <input
+                          type="number" step="any" min="0" placeholder="Set once"
+                          value={baselineDraft[b.portfolio_id] ?? ''}
+                          onChange={(e) => setBaselineDraft((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
+                          style={{ ...inputStyle, width: 120, textAlign: 'right' }}
+                        />
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
+                      {Number(b.current_amount).toLocaleString()}
+                    </td>
+
+                    <td style={{ textAlign: 'right' }}>
+                      {hasBaseline ? (
+                        <>
+                          <input
+                            type="number" step="any" min="0"
+                            value={assignedDraft[b.portfolio_id] ?? Number(b.assigned_amount)}
+                            onChange={(e) => setAssignedDraft((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
+                            style={{ ...inputStyle, width: 120, textAlign: 'right' }}
+                          />
+                          {assignedDraft[b.portfolio_id] !== undefined && (
+                            <input
+                              type="text" placeholder="Reason for change"
+                              value={assignedReason[b.portfolio_id] ?? ''}
+                              onChange={(e) => setAssignedReason((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
+                              style={{ ...inputStyle, width: 160, marginTop: 6, fontSize: 12 }}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>not set</span>
+                      )}
+                    </td>
+
+                    <td>
+                      {!hasBaseline && baselineDraft[b.portfolio_id] && (
+                        <button onClick={() => openBaselineConfirm(b.portfolio_id, b.portfolio_name)}
+                          className="btn btn--project" style={{ fontSize: 11, padding: '4px 8px' }}>
+                          Set baseline
+                        </button>
+                      )}
+                      {hasBaseline && assignedDraft[b.portfolio_id] !== undefined && (
+                        <button onClick={() => saveAssigned(b.portfolio_id)} disabled={savingAssigned === b.portfolio_id}
+                          className="btn btn--outline" style={{ fontSize: 11, padding: '4px 8px' }}>
+                          {savingAssigned === b.portfolio_id ? '...' : 'Save'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
           {(adjustments.length > 0 || transfers.length > 0) && (
             <div>
-              <div className="goal-card__meta" style={{ marginBottom: 8 }}>Budget change history - {year}</div>
-              {changeHistory.map((entry) => (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                <div className="goal-card__meta">Budget change history</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select value={historyYearFilter} onChange={(e) => setHistoryYearFilter(e.target.value)}
+                    style={{ padding: '5px 8px', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5 }}>
+                    <option value="all">All years</option>
+                    {historyYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select value={historyPortfolioFilter} onChange={(e) => setHistoryPortfolioFilter(e.target.value)}
+                    style={{ padding: '5px 8px', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5 }}>
+                    <option value="all">All portfolios</option>
+                    {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {filteredHistory.length === 0 && (
+                <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>No history matches this filter.</p>
+              )}
+              {filteredHistory.map((entry) => (
                 entry.kind === 'adjustment' ? (
                   <div key={`adj-${entry.data.id}`} className="goal-card" style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -314,7 +344,7 @@ export function PortfolioBudgets() {
                     </div>
                     <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{entry.data.reason}</div>
                     <div className="goal-card__meta" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
-                      {entry.data.adjusted_by_name ?? 'unknown'} &middot; {new Date(entry.data.adjusted_at).toLocaleDateString()}
+                      {entry.data.adjusted_by_name ?? 'unknown'} &middot; {new Date(entry.data.adjusted_at).toLocaleDateString()} &middot; FY{entry.data.financial_year}
                     </div>
                   </div>
                 ) : (
@@ -324,11 +354,11 @@ export function PortfolioBudgets() {
                         <strong>GBP {Number(entry.data.amount).toLocaleString()}</strong> moved from{' '}
                         <strong>{entry.data.from_portfolio_name}</strong> to <strong>{entry.data.to_portfolio_name}</strong>
                       </div>
-                      <span className="pill pill--teal">Transfer</span>
+                      <span className="pill pill--teal">Transfer (historical)</span>
                     </div>
                     <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{entry.data.reason}</div>
                     <div className="goal-card__meta" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
-                      {entry.data.approved_by_name ?? 'unknown'} &middot; {new Date(entry.data.transferred_at).toLocaleDateString()}
+                      {entry.data.approved_by_name ?? 'unknown'} &middot; {new Date(entry.data.transferred_at).toLocaleDateString()} &middot; FY{entry.data.financial_year}
                       {entry.data.related_demand_title && ` \u00b7 re: ${entry.data.related_demand_title}`}
                     </div>
                   </div>
@@ -337,6 +367,33 @@ export function PortfolioBudgets() {
             </div>
           )}
         </>
+      )}
+
+      {confirmBaselineFor && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(20,22,28,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 'var(--radius)', padding: '1.75rem',
+            maxWidth: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
+              Set baseline for {confirmBaselineFor.portfolioName}?
+            </div>
+            <p style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 18 }}>
+              GBP {confirmBaselineFor.amount.toLocaleString()} will become the permanent baseline for{' '}
+              {confirmBaselineFor.portfolioName} in {year}. This can never be changed afterward - only the
+              assigned amount can move, and only with a reason. Make sure this is right first.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={confirmSetBaseline} disabled={settingBaseline} className="btn btn--project">
+                {settingBaseline ? 'Setting...' : 'Yes, set baseline'}
+              </button>
+              <button onClick={() => setConfirmBaselineFor(null)} className="btn btn--outline">Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

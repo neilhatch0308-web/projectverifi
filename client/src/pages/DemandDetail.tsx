@@ -11,6 +11,7 @@ interface Score {
   score_awarded: number; rationale: string | null;
 }
 interface SubPortfolio { id: string; name: string; parent_id: string; parent_name: string; }
+interface User { id: string; display_name: string; role: string; is_senior: boolean; }
 
 interface Priority {
   total_score: number; weighted_score: number; criteria_scored: number; criteria_available: number;
@@ -40,6 +41,7 @@ interface DemandDetail {
   assessment: Assessment | null;
   triaged_at: string | null; triage_notes: string | null; triaged_by_name: string | null;
   stop_reason: string | null; stopped_at: string | null; stopped_by_name: string | null;
+  assigned_assessor_id: string | null; assigned_assessor_name: string | null;
   delivering_sub_portfolio_name: string | null; delivering_parent_portfolio_name: string | null;
   delivering_sub_portfolio_id: string | null;
   criteria: Criterion[]; raci: Raci | null; scores: Score[]; priority: Priority;
@@ -70,7 +72,9 @@ export function DemandDetail() {
   const [complexityTier, setComplexityTier] = useState('');
   const [costTier, setCostTier] = useState('');
   const [triageNotes, setTriageNotes] = useState('');
+  const [assignedAssessorId, setAssignedAssessorId] = useState('');
   const [triageError, setTriageError] = useState<string | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   const [showStop, setShowStop] = useState(false);
   const [stopReason, setStopReason] = useState('');
@@ -84,6 +88,7 @@ export function DemandDetail() {
   }
   useEffect(load, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
+  useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
 
   async function assignSubPortfolio(subPortfolioId: string) {
     if (!id) return;
@@ -102,6 +107,19 @@ export function DemandDetail() {
     }
   }
 
+  async function reassignAssessor(assessorId: string) {
+    if (!id) return;
+    try {
+      await apiFetch(`/api/demands/${id}/assessor`, {
+        method: 'PATCH',
+        body: JSON.stringify({ assessorId: assessorId || null }),
+      });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reassign assessor');
+    }
+  }
+
   async function submitTriageDecision() {
     if (!id) return;
     setTriageError(null);
@@ -113,7 +131,10 @@ export function DemandDetail() {
     try {
       await apiFetch(`/api/demands/${id}/triage`, {
         method: 'POST',
-        body: JSON.stringify({ complexityTier, costTier, notes: triageNotes || undefined }),
+        body: JSON.stringify({
+          complexityTier, costTier, notes: triageNotes || undefined,
+          assignedAssessorId: assignedAssessorId || undefined,
+        }),
       });
       load();
     } catch (err) {
@@ -242,6 +263,16 @@ export function DemandDetail() {
           <div className="goal-card__name">
             {Number(demand.priority.weighted_score ?? 0).toFixed(1)} <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>/ 20
               ({demand.priority.criteria_scored} of {demand.priority.criteria_available} scored)</span>
+          </div>
+        </div>
+        <div className="goal-card" style={{ marginBottom: 0 }}>
+          <div className="goal-card__meta">Portfolio</div>
+          <div className="goal-card__name" style={{ fontSize: 15 }}>{demand.portfolio_name}</div>
+        </div>
+        <div className="goal-card" style={{ marginBottom: 0 }}>
+          <div className="goal-card__meta">Delivering sub-portfolio</div>
+          <div className="goal-card__name" style={{ fontSize: 15 }}>
+            {demand.delivering_sub_portfolio_name ?? <span style={{ color: 'var(--muted)', fontWeight: 400 }}>Not yet categorised</span>}
           </div>
         </div>
       </div>
@@ -490,6 +521,20 @@ export function DemandDetail() {
               value={triageNotes} onChange={(e) => setTriageNotes(e.target.value)} />
           </div>
 
+          <div className="login-field" style={{ marginTop: 10, marginBottom: 0 }}>
+            <label>Tag an assessor (optional)</label>
+            <select value={assignedAssessorId} onChange={(e) => setAssignedAssessorId(e.target.value)}
+              style={{ width: '100%', padding: 10, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 14 }}>
+              <option value="">Leave open - anyone who can assess picks it up</option>
+              {[...users].sort((a, b) => Number(b.is_senior) - Number(a.is_senior)).map((u) => (
+                <option key={u.id} value={u.id}>{u.display_name}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+              If tagged, this shows in that person's My Actions as their P75 task specifically.
+            </p>
+          </div>
+
           {triageError && <p className="login-error" style={{ marginTop: 10 }}>{triageError}</p>}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
@@ -504,6 +549,19 @@ export function DemandDetail() {
 
       {demand.status === 'accepted' && (
         <div>
+          <div className="goal-card" style={{ marginBottom: 12 }}>
+            <div className="goal-card__meta" style={{ marginBottom: 6 }}>Tagged assessor</div>
+            <select
+              value={demand.assigned_assessor_id ?? ''}
+              onChange={(e) => reassignAssessor(e.target.value)}
+              style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 13.5 }}
+            >
+              <option value="">Open - anyone who can assess picks it up</option>
+              {[...users].sort((a, b) => Number(b.is_senior) - Number(a.is_senior)).map((u) => (
+                <option key={u.id} value={u.id}>{u.display_name}</option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Link to={`/demand/${demand.id}/assess`} className="btn btn--project" style={{ textDecoration: 'none' }}>
               Assess (P75)

@@ -55,12 +55,17 @@ router.get('/annual-plans/:id/board', requireAuth, async (req, res) => {
       const planResult = await client.query(
         `SELECT p.id, p.portfolio_id, po.name AS portfolio_name, p.financial_year,
                 p.version, p.status, p.created_at, p.agreed_at,
+                p.locked_at, p.unlocked_at,
                 creator.display_name AS created_by_name,
-                agreer.display_name AS agreed_by_name
+                agreer.display_name AS agreed_by_name,
+                locker.display_name AS locked_by_name,
+                unlocker.display_name AS unlocked_by_name
          FROM annual_plan p
          JOIN portfolio po ON po.id = p.portfolio_id
          LEFT JOIN app_user creator ON creator.id = p.created_by
          LEFT JOIN app_user agreer ON agreer.id = p.agreed_by
+         LEFT JOIN app_user locker ON locker.id = p.locked_by
+         LEFT JOIN app_user unlocker ON unlocker.id = p.unlocked_by
          WHERE p.id = $1`,
         [id]
       );
@@ -193,7 +198,83 @@ router.delete('/annual-plans/:id/items/:demandId', requireAuth, requirePermissio
   }
 });
 
-// ---------- Agree the plan - locks it ----------
+// ---------- Lock the plan - a light, reversible checkpoint ----------
+// Stops cards being draggable while a plan is reviewed for sign-off.
+// Deliberately NOT the final commitment - Unlock (below) reverses this
+// freely. The heavy, one-way-except-via-revision step is Agree, further
+// down, not this one.
+router.post('/annual-plans/:id/lock', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const updated = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(
+        `UPDATE annual_plan SET status = 'locked', locked_by = $1, locked_at = now()
+         WHERE id = $2 AND status = 'draft'
+         RETURNING id, status, locked_at`,
+        [userId, id]
+      );
+      return result.rows[0];
+    });
+
+    if (!updated) return res.status(409).json({ error: 'Only a draft plan can be locked' });
+    res.json(updated);
+  } catch (err) {
+    console.error('Failed to lock plan:', err);
+    res.status(500).json({ error: 'Failed to lock plan' });
+  }
+});
+
+// ---------- Unlock - reverses Lock, back to fully editable draft ----------
+// Easy, low-friction - draft and locked are meant to be freely
+// toggled while a plan is still being worked on. Distinct from Agree
+// below, which is the genuinely final step.
+router.post('/annual-plans/:id/unlock', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const plan = await client.query(
+        `SELECT portfolio_id, financial_year, status FROM annual_plan WHERE id = $1`, [id]
+      );
+      if (plan.rows.length === 0) return { notFound: true as const };
+      if (plan.rows[0].status !== 'locked') return { wrongStatus: true as const };
+
+      const existingDraft = await client.query(
+        `SELECT id FROM annual_plan WHERE portfolio_id = $1 AND financial_year = $2 AND status = 'draft' AND id <> $3`,
+        [plan.rows[0].portfolio_id, plan.rows[0].financial_year, id]
+      );
+      if (existingDraft.rows.length > 0) return { draftExists: true as const };
+
+      const updated = await client.query(
+        `UPDATE annual_plan SET status = 'draft', unlocked_by = $1, unlocked_at = now()
+         WHERE id = $2
+         RETURNING id, status, unlocked_at`,
+        [userId, id]
+      );
+      return { updated: updated.rows[0] };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Plan not found' });
+    if ('wrongStatus' in result) return res.status(409).json({ error: 'Only a locked plan can be unlocked' });
+    if ('draftExists' in result) {
+      return res.status(409).json({ error: 'A newer draft already exists for this portfolio and year - resolve that first' });
+    }
+    res.json(result.updated);
+  } catch (err) {
+    console.error('Failed to unlock plan:', err);
+    res.status(500).json({ error: 'Failed to unlock plan' });
+  }
+});
+
+// ---------- Agree the plan - the genuinely final commitment ----------
+// Only reachable from Locked, never directly from Draft - a plan has
+// to have passed through the reversible checkpoint first. There is
+// deliberately NO unlock/un-agree from here: once agreed, the only way
+// forward is "start mid-year revision" below, which creates a new
+// draft version and leaves this one permanently intact for comparison.
 router.post('/annual-plans/:id/agree', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
@@ -202,14 +283,14 @@ router.post('/annual-plans/:id/agree', requireAuth, requirePermission('planning.
     const updated = await withTenantContext(organizationId, async (client) => {
       const result = await client.query(
         `UPDATE annual_plan SET status = 'agreed', agreed_by = $1, agreed_at = now()
-         WHERE id = $2 AND status = 'draft'
+         WHERE id = $2 AND status = 'locked'
          RETURNING id, status, agreed_at`,
         [userId, id]
       );
       return result.rows[0];
     });
 
-    if (!updated) return res.status(409).json({ error: 'Only a draft plan can be agreed' });
+    if (!updated) return res.status(409).json({ error: 'Only a locked plan can be agreed' });
     res.json(updated);
   } catch (err) {
     console.error('Failed to agree plan:', err);

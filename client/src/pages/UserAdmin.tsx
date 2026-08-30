@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../lib/apiClient';
 
 interface Role { id: string; name: string; description: string | null; }
@@ -16,6 +16,15 @@ export function UserAdmin() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('active');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newRoleIds, setNewRoleIds] = useState<Set<string>>(new Set());
+  const [creating, setCreating] = useState(false);
+  const [createdResetLink, setCreatedResetLink] = useState<string | null>(null);
+  const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Local edit buffer per user - lets someone tick several boxes before
   // it saves, rather than firing a request per checkbox click.
@@ -83,6 +92,48 @@ export function UserAdmin() {
     }
   }
 
+  function toggleNewRole(roleId: string) {
+    setNewRoleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(roleId)) next.delete(roleId); else next.add(roleId);
+      return next;
+    });
+  }
+
+  async function createUser(e: FormEvent) {
+    e.preventDefault();
+    setCreating(true);
+    setError(null);
+    try {
+      const result = await apiFetch('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: newEmail,
+          displayName: newDisplayName,
+          roleIds: Array.from(newRoleIds),
+        }),
+      });
+      setCreatedResetLink(result.resetLink);
+      setCreatedEmail(newEmail);
+      setLinkCopied(false);
+      setNewEmail('');
+      setNewDisplayName('');
+      setNewRoleIds(new Set());
+      setShowCreate(false);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create user');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function copyResetLink() {
+    if (!createdResetLink) return;
+    await navigator.clipboard.writeText(createdResetLink);
+    setLinkCopied(true);
+  }
+
   const filteredUsers = users.filter((user) => {
     const matchesSearch = search.trim().length === 0
       || user.display_name.toLowerCase().includes(search.toLowerCase())
@@ -96,11 +147,78 @@ export function UserAdmin() {
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <h1 className="page-title">Users</h1>
-      <p className="page-subtitle">
-        Every user is a Submitter by default - raise demand, view/edit their own. Tick additional
-        roles below to grant more. Roles stack; a user can hold several at once.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-title">Users</h1>
+          <p className="page-subtitle">
+            Every user is a Submitter by default - raise demand, view/edit their own. Tick additional
+            roles below to grant more. Roles stack; a user can hold several at once.
+          </p>
+        </div>
+        <button onClick={() => setShowCreate((s) => !s)} className="btn btn--project" style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}>
+          + Create user
+        </button>
+      </div>
+
+      {createdResetLink && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem', border: '1.5px solid var(--teal)' }}>
+          <div className="goal-card__meta" style={{ marginBottom: 6 }}>
+            Account created for {createdEmail}
+          </div>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+            There's no automated email for this yet - copy this password-reset link and send it to
+            them yourself (email, Slack, however). It lets them set their own password; nobody here
+            ever sees it.
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input readOnly value={createdResetLink} onFocus={(e) => e.target.select()}
+              style={{ flex: 1, fontSize: 12, padding: '6px 10px', border: '1px solid var(--hairline)', borderRadius: 8, fontFamily: 'var(--font-mono)' }} />
+            <button onClick={copyResetLink} className="btn btn--outline" style={{ fontSize: 11.5, padding: '6px 12px', whiteSpace: 'nowrap' }}>
+              {linkCopied ? 'Copied!' : 'Copy link'}
+            </button>
+          </div>
+          <button onClick={() => setCreatedResetLink(null)} className="btn btn--outline" style={{ fontSize: 11, padding: '4px 10px', marginTop: 10 }}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {showCreate && (
+        <form onSubmit={createUser} className="goal-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="goal-card__meta" style={{ marginBottom: 8 }}>Create a new user</div>
+          <div className="login-field"><label>Email</label>
+            <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required /></div>
+          <div className="login-field"><label>Display name</label>
+            <input type="text" value={newDisplayName} onChange={(e) => setNewDisplayName(e.target.value)} required /></div>
+
+          {roles.length > 0 && (
+            <>
+              <div className="goal-card__meta" style={{ marginTop: 4, marginBottom: 8 }}>Roles (optional)</div>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 10 }}>
+                {roles.map((role) => (
+                  <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    <input type="checkbox" checked={newRoleIds.has(role.id)} onChange={() => toggleNewRole(role.id)} />
+                    {role.name}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+            This creates a real sign-in account. You'll get a password-reset link to send them
+            afterward - there's no invite email sent automatically.
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="submit" disabled={creating} className="btn btn--project" style={{ fontSize: 12, padding: '6px 14px' }}>
+              {creating ? 'Creating...' : 'Create user'}
+            </button>
+            <button type="button" onClick={() => setShowCreate(false)} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 14px' }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       {loading && <p>Loading...</p>}
       {error && <p className="login-error">{error}</p>}

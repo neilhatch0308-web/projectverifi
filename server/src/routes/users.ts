@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { getAuth } from 'firebase-admin/auth';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
@@ -238,7 +239,81 @@ router.put('/users/:id/roles', requireAuth, requirePermission('users.manage'), a
   }
 });
 
-// ---------- User admin: suspend or reactivate ----------
+// ---------- User admin: create a real user ----------
+// Creates an actual Firebase Auth account via the Admin SDK - not just
+// an app_user row. There's no email-sending infrastructure in this
+// codebase (no nodemailer/SendGrid/etc.), so rather than pretend to
+// send an invite, this generates a genuine Firebase password-reset
+// link and hands it straight back in the API response - the admin
+// copies it and sends it themselves (email, Slack, however). The new
+// account gets a random password server-side purely to satisfy
+// Firebase's requirement that an account has SOME credential; nobody
+// ever sees or uses it - the reset link is how the real person sets
+// their own password.
+//
+// If the database steps fail after the Firebase user was already
+// created, the Firebase user is deleted again - a partial success
+// (a Firebase account with no matching app_user row) would be a
+// confusing, silently broken state, worse than a clean failure.
+const createUserSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().min(1),
+  roleIds: z.array(looseUuid()).default([]),
+});
+
+router.post('/users', requireAuth, requirePermission('users.manage'), async (req, res) => {
+  const parsed = createUserSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId: grantedBy } = req.user!;
+  const { email, displayName, roleIds } = parsed.data;
+
+  let firebaseUid: string | null = null;
+
+  try {
+    const randomPassword = `Tmp-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}!`;
+    const firebaseUser = await getAuth().createUser({ email, displayName, password: randomPassword, emailVerified: false });
+    firebaseUid = firebaseUser.uid;
+
+    const newUser = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(
+        `INSERT INTO app_user (id, organization_id, email, display_name, firebase_uid, is_active)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, true)
+         RETURNING id, display_name, email, is_active`,
+        [organizationId, email, displayName, firebaseUid]
+      );
+      const user = result.rows[0];
+
+      for (const roleId of roleIds) {
+        await client.query(
+          `INSERT INTO app_user_role (user_id, role_id, granted_by) VALUES ($1, $2, $3)`,
+          [user.id, roleId, grantedBy]
+        );
+      }
+
+      return user;
+    });
+
+    const resetLink = await getAuth().generatePasswordResetLink(email);
+
+    res.status(201).json({ user: newUser, resetLink });
+  } catch (err: any) {
+    // Roll back the Firebase account if it was created but the DB
+    // steps failed - a dangling auth account with no app_user row
+    // would just be a confusing bug waiting to be discovered later.
+    if (firebaseUid) {
+      try { await getAuth().deleteUser(firebaseUid); } catch { /* best effort */ }
+    }
+
+    if (err?.code === 'auth/email-already-exists') {
+      return res.status(409).json({ error: 'A Firebase account with this email already exists' });
+    }
+    console.error('Failed to create user:', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+
 // is_active is already enforced in requireAuth (a deactivated account
 // gets 403 on every request) - this just exposes the toggle. Guarded
 // against self-deactivation: locking yourself out with no other
@@ -271,6 +346,50 @@ router.patch('/users/:id/status', requireAuth, requirePermission('users.manage')
   } catch (err) {
     console.error('Failed to update user status:', err);
     res.status(500).json({ error: 'Failed to update user status' });
+  }
+});
+
+// ---------- My actions: role-wide and person-tagged task queue ----------
+// Two kinds of "this needs you": role-wide (anyone holding the
+// permission sees it - triage) and person-tagged (a specific named
+// assessor sees it, falling back to role-wide if nobody's tagged).
+// Confidentiality still applies here - a confidential demand needing
+// triage doesn't show up for a PMO member who can't see confidential
+// demand at all, same rule as the main list endpoint.
+router.get('/me/actions', requireAuth, async (req, res) => {
+  const { organizationId, userId, permissions } = req.user!;
+  const canTriage = permissions.includes('demand.triage');
+  const canAssess = permissions.includes('demand.assess');
+  const canViewConfidential = permissions.includes('demand.view_confidential');
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const triageNeeded = await client.query(
+        `SELECT d.id, d.title, d.raised_date, p.name AS portfolio_name
+         FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
+         WHERE d.status = 'raised' AND $1
+           AND (d.confidential = false OR d.raised_by = $2 OR $3)
+         ORDER BY d.raised_date ASC`,
+        [canTriage, userId, canViewConfidential]
+      );
+
+      const assessmentNeeded = await client.query(
+        `SELECT d.id, d.title, d.raised_date, p.name AS portfolio_name
+         FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
+         WHERE d.status = 'accepted'
+           AND (d.assigned_assessor_id = $1 OR (d.assigned_assessor_id IS NULL AND $2))
+           AND (d.confidential = false OR d.raised_by = $1 OR $3)
+         ORDER BY d.raised_date ASC`,
+        [userId, canAssess, canViewConfidential]
+      );
+
+      return { triageNeeded: triageNeeded.rows, assessmentNeeded: assessmentNeeded.rows };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to fetch actions:', err);
+    res.status(500).json({ error: 'Failed to fetch actions' });
   }
 });
 

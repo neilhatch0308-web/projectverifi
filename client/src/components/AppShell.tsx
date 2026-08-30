@@ -9,6 +9,12 @@ import iconMark from '../assets/project-verifi-icon.svg';
 // convenience, the real gate is server-side.
 const navGroups = [
   {
+    label: 'Me',
+    items: [
+      { to: '/home', label: 'My Home' },
+    ],
+  },
+  {
     label: 'Organisation',
     items: [
       { to: '/portfolio', label: 'Portfolio rollup' },

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 
 interface Portfolio { id: string; name: string; }
+interface SubPortfolio { id: string; name: string; parent_id: string; parent_name: string; }
 interface User { id: string; display_name: string; role: string; is_senior: boolean; }
 interface StrategicGoal { id: string; name: string; description: string | null; status: string; }
 
@@ -34,6 +35,7 @@ const LEVELS = ['0', '5', '10', '15', '20'];
 export function RaiseDemand() {
   const navigate = useNavigate();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [subPortfolios, setSubPortfolios] = useState<SubPortfolio[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [strategicGoals, setStrategicGoals] = useState<StrategicGoal[]>([]);
   const [scoringCriteria, setScoringCriteria] = useState<ScoringCriterion[]>([]);
@@ -42,6 +44,7 @@ export function RaiseDemand() {
   const [description, setDescription] = useState('');
   const [outcomeStatement, setOutcomeStatement] = useState('');
   const [portfolioId, setPortfolioId] = useState('');
+  const [deliveringSubPortfolioId, setDeliveringSubPortfolioId] = useState('');
   const [sponsorUserId, setSponsorUserId] = useState('');
   const [needByDate, setNeedByDate] = useState('');
   const [changeType, setChangeType] = useState('');
@@ -65,6 +68,7 @@ export function RaiseDemand() {
 
   useEffect(() => {
     apiFetch('/api/portfolios').then(setPortfolios).catch((err) => setError(err.message));
+    apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch((err) => setError(err.message));
     apiFetch('/api/users').then(setUsers).catch((err) => setError(err.message));
     apiFetch('/api/strategic-goals')
       .then((goals: StrategicGoal[]) => setStrategicGoals(goals.filter((g) => g.status === 'active')))
@@ -142,6 +146,7 @@ export function RaiseDemand() {
           description,
           outcomeStatement,
           portfolioId,
+          deliveringSubPortfolioId: deliveringSubPortfolioId || undefined,
           sponsorUserId,
           needByDate: needByDate || undefined,
           adoptionChangeType: changeType || null,
@@ -182,6 +187,13 @@ export function RaiseDemand() {
             <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)} required style={selectStyle}>
               <option value="">Select</option>
               {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="login-field">
+            <label>Delivering sub-portfolio (optional)</label>
+            <select value={deliveringSubPortfolioId} onChange={(e) => setDeliveringSubPortfolioId(e.target.value)} style={selectStyle}>
+              <option value="">Not yet categorised</option>
+              {subPortfolios.map((s) => <option key={s.id} value={s.id}>{s.parent_name} / {s.name}</option>)}
             </select>
           </div>
           <div className="login-field">

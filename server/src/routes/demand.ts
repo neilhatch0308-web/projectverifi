@@ -23,7 +23,8 @@ router.get('/demands', requireAuth, async (req, res) => {
         `SELECT d.id, d.title, d.status, d.raised_date, d.need_by_date,
                 d.complexity_tier, d.cost_tier, d.date_driver_type,
                 d.claimed_cost, d.claimed_benefit,
-                d.stopped_at, d.confidential,
+                d.stopped_at, d.confidential, d.raised_by,
+                d.assigned_assessor_id, assessor.display_name AS assigned_assessor_name,
                 a.assessed_cost, a.assessed_benefit,
                 p.id AS portfolio_id, p.name AS portfolio_name,
                 sub.id AS delivering_sub_portfolio_id, sub.name AS delivering_sub_portfolio_name,
@@ -35,6 +36,7 @@ router.get('/demands', requireAuth, async (req, res) => {
          LEFT JOIN demand_priority_view pv ON pv.demand_id = d.id
          LEFT JOIN demand_assessment a ON a.demand_id = d.id
          LEFT JOIN business_case bc ON bc.demand_id = d.id
+         LEFT JOIN app_user assessor ON assessor.id = d.assigned_assessor_id
          WHERE d.confidential = false OR d.raised_by = $1 OR $2
          ORDER BY d.raised_date DESC`,
         [userId, canViewConfidential]
@@ -64,6 +66,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
                 d.date_driver_type, d.date_driver_detail,
                 d.claimed_cost, d.claimed_benefit,
                 d.confidential, d.raised_by,
+                d.assigned_assessor_id, assigned_assessor.display_name AS assigned_assessor_name,
                 p.name AS portfolio_name,
                 sub.name AS delivering_sub_portfolio_name,
                 subparent.name AS delivering_parent_portfolio_name,
@@ -76,6 +79,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
          JOIN portfolio p ON p.id = d.portfolio_id
          LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
          LEFT JOIN portfolio subparent ON subparent.id = sub.parent_portfolio_id
+         LEFT JOIN app_user assigned_assessor ON assigned_assessor.id = d.assigned_assessor_id
          LEFT JOIN app_user conceiver ON conceiver.id = d.raised_by
          LEFT JOIN app_user sponsor ON sponsor.id = d.sponsor_user_id
          LEFT JOIN app_user triager ON triager.id = d.triaged_by
@@ -230,6 +234,63 @@ router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, requirePermis
   }
 });
 
+// ---------- Reassign the raising portfolio ----------
+// Distinct from delivering sub-portfolio reassignment above: this
+// changes WHERE a demand was conceived (a parent portfolio), not who
+// delivers it. Historically fixed at raise; made reassignable
+// specifically so a portfolio being retired/deleted can have its
+// demand moved elsewhere first, rather than being permanently
+// undeletable. Gated on org.manage rather than demand.assess - this is
+// portfolio administration, not demand triage/assessment work.
+const reassignRaisingPortfolioSchema = z.object({
+  portfolioId: looseUuid(),
+  reason: z.string().optional(),
+});
+
+router.patch('/demands/:id/raising-portfolio', requireAuth, requirePermission('org.manage'), async (req, res) => {
+  const parsed = reassignRaisingPortfolioSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+  const { portfolioId, reason } = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const target = await client.query(`SELECT parent_portfolio_id FROM portfolio WHERE id = $1`, [portfolioId]);
+      if (target.rows.length === 0) return { notFound: true as const };
+      if (target.rows[0].parent_portfolio_id !== null) {
+        return { wrongLevel: true as const };
+      }
+
+      const current = await client.query(`SELECT portfolio_id FROM demand WHERE id = $1`, [id]);
+      if (current.rows.length === 0) return { notFound: true as const };
+      const previousPortfolioId = current.rows[0].portfolio_id;
+
+      const updated = await client.query(
+        `UPDATE demand SET portfolio_id = $1 WHERE id = $2 RETURNING id, portfolio_id`,
+        [portfolioId, id]
+      );
+
+      await client.query(
+        `INSERT INTO demand_raising_portfolio_reassignment
+           (id, demand_id, from_portfolio_id, to_portfolio_id, reason, changed_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+        [id, previousPortfolioId, portfolioId, reason ?? null, userId]
+      );
+
+      return { demand: updated.rows[0] };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand or portfolio not found' });
+    if ('wrongLevel' in result) return res.status(400).json({ error: 'Raising portfolio must be a parent portfolio, not a sub-portfolio' });
+    res.json(result.demand);
+  } catch (err) {
+    console.error('Failed to reassign raising portfolio:', err);
+    res.status(500).json({ error: 'Failed to reassign raising portfolio' });
+  }
+});
+
 // ---------- Create ----------
 // Baseline/target must genuinely be numeric - Postgres's numeric type
 // accepts the literal value NaN, so Number("42 days") silently stored
@@ -259,6 +320,7 @@ const createDemandSchema = z.object({
   description: z.string().min(1, 'Problem statement is required'),
   outcomeStatement: z.string().min(1, 'Need and output is required'),
   portfolioId: looseUuid('Select the raising portfolio'),
+  deliveringSubPortfolioId: looseUuid().optional(),
   sponsorUserId: looseUuid('Select a sponsor'),
   needByDate: z.string().optional(),
   adoptionChangeType: z.enum(['process', 'tool', 'both']).nullable().optional(),
@@ -280,7 +342,7 @@ router.post('/demands', requireAuth, async (req, res) => {
   }
 
   const {
-    title, description, outcomeStatement, portfolioId, sponsorUserId, needByDate,
+    title, description, outcomeStatement, portfolioId, deliveringSubPortfolioId, sponsorUserId, needByDate,
     adoptionChangeType, dateDriverType, dateDriverDetail, claimedCost, claimedBenefit,
     confidential, criteria, scores, strategicGoalId, alignmentNotes,
   } = parsed.data;
@@ -302,13 +364,13 @@ router.post('/demands', requireAuth, async (req, res) => {
       }
       const demandResult = await client.query(
         `INSERT INTO demand
-           (id, organization_id, portfolio_id, title, description, outcome_statement,
-            raised_by, sponsor_user_id, need_by_date, raised_date, size_tier, status,
+           (id, organization_id, portfolio_id, delivering_sub_portfolio_id, title, description, outcome_statement,
+            raised_by, sponsor_user_id, need_by_date, raised_date, status,
             adoption_change_type, date_driver_type, date_driver_detail,
             claimed_cost, claimed_benefit, confidential)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE, 'unsized', 'raised', $9, $10, $11, $12, $13, $14)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, 'raised', $10, $11, $12, $13, $14, $15)
          RETURNING id, title, status, raised_date`,
-        [organizationId, portfolioId, title, description, outcomeStatement, userId, sponsorUserId,
+        [organizationId, portfolioId, deliveringSubPortfolioId ?? null, title, description, outcomeStatement, userId, sponsorUserId,
          needByDate ?? null, adoptionChangeType ?? null, dateDriverType ?? 'none', dateDriverDetail ?? null,
          claimedCost, claimedBenefit, confidential]
       );
@@ -367,6 +429,7 @@ const triageDecisionSchema = z.object({
   complexityTier: z.enum(['high', 'medium', 'low']),
   costTier: z.enum(['high', 'medium', 'low']),
   notes: z.string().optional(),
+  assignedAssessorId: looseUuid().optional(),
 });
 
 router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage'), async (req, res) => {
@@ -375,7 +438,7 @@ router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage
 
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { complexityTier, costTier, notes } = parsed.data;
+  const { complexityTier, costTier, notes, assignedAssessorId } = parsed.data;
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
@@ -390,10 +453,11 @@ router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage
       const updated = await client.query(
         `UPDATE demand
          SET status = 'accepted', complexity_tier = $1, cost_tier = $2,
-             triaged_by = $3, triaged_at = now(), triage_notes = $4
-         WHERE id = $5
-         RETURNING id, title, status, complexity_tier, cost_tier`,
-        [complexityTier, costTier, userId, notes ?? null, id]
+             triaged_by = $3, triaged_at = now(), triage_notes = $4,
+             assigned_assessor_id = $5
+         WHERE id = $6
+         RETURNING id, title, status, complexity_tier, cost_tier, assigned_assessor_id`,
+        [complexityTier, costTier, userId, notes ?? null, assignedAssessorId ?? null, id]
       );
 
       return { demand: updated.rows[0] };
@@ -408,6 +472,37 @@ router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage
   } catch (err) {
     console.error('Failed to record triage decision:', err);
     res.status(500).json({ error: 'Failed to record triage decision' });
+  }
+});
+
+// ---------- Reassign the tagged assessor ----------
+// Independent of triage - lets PMO retag who should run the P75
+// assessment without re-triaging the whole demand. Null clears the
+// tag, making it open to anyone with demand.assess again.
+const assignAssessorSchema = z.object({ assessorId: looseUuid().nullable() });
+
+router.patch('/demands/:id/assessor', requireAuth, requirePermission('demand.triage'), async (req, res) => {
+  const parsed = assignAssessorSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const updated = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(
+        `UPDATE demand SET assigned_assessor_id = $1 WHERE id = $2
+         RETURNING id, assigned_assessor_id`,
+        [parsed.data.assessorId, id]
+      );
+      return result.rows[0];
+    });
+
+    if (!updated) return res.status(404).json({ error: 'Demand not found' });
+    res.json(updated);
+  } catch (err) {
+    console.error('Failed to reassign assessor:', err);
+    res.status(500).json({ error: 'Failed to reassign assessor' });
   }
 });
 
