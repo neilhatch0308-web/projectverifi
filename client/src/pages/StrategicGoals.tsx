@@ -94,7 +94,6 @@ export function StrategicGoals() {
     }
   }
 
-  const activeCount = goals.filter((g) => g.status !== 'completed' || true).length; // all declared count toward cap
   const openSlots = 5 - goals.length;
 
   return (

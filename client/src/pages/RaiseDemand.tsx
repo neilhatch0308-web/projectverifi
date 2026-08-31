@@ -93,7 +93,10 @@ export function RaiseDemand() {
   }
 
   function updateScore(criterionId: string, field: 'level' | 'rationale', value: string) {
-    setScores((s) => ({ ...s, [criterionId]: { level: '', rationale: '', ...s[criterionId], [field]: value } }));
+    setScores((s) => {
+      const existing = s[criterionId] ?? { level: '', rationale: '' };
+      return { ...s, [criterionId]: { ...existing, [field]: value } };
+    });
   }
 
   const weightedTotal = scoringCriteria.reduce((sum, c) => {
