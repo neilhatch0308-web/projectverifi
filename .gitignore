@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+!client/.env.production
+!server/.env.production
 .env.local
 firebase-adminsdk.json
 cloud-sql-proxy.exe
@@ -8,3 +10,5 @@ cloud-sql-proxy.x64.exe
 *.log
 Thumbs.db
 Demand metrics.txt
+# Firebase CLI local cache (not meant to be tracked)
+.firebase/
