@@ -1,7 +1,7 @@
 /* client/src/pages/FiveYearHorizon.css
-   References existing design tokens (graphite/teal/indigo/cloud/hairline).
-   Swap variable names below for the real ones if these differ from
-   what's defined in the project's global stylesheet. */
+   Uses the project's real design tokens defined in we-verifi-brand.css:
+   --graphite: #14161C   --cloud: #F4F5F8   --hairline: #DADFE8
+   --muted: #606677      --indigo: #5B5FEF  --teal: #17C3B2 */
 
 .horizon-page {
   padding: 24px;
@@ -23,24 +23,24 @@
 
 .horizon-title {
   font-family: var(--font-display, 'Space Grotesk', sans-serif);
-  font-size: 1.4rem;
-  font-weight: 500;
-  color: var(--color-graphite, #23262b);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--graphite);
 }
 
 .horizon-state {
   padding: 40px;
   text-align: center;
-  color: var(--color-graphite-muted, #6b7076);
+  color: var(--muted);
 }
 .horizon-state--error,
 .horizon-inline-error {
-  color: var(--color-danger, #b03a3a);
+  color: #b0392f; /* matches .login-error's #c23-family red, kept distinct from teal/indigo brand accents */
 }
 
 .horizon-grid {
   overflow-x: auto;
-  border: 1px solid var(--color-hairline, #e2e4e7);
+  border: 1.5px solid var(--muted);
   border-radius: 8px;
   padding: 12px;
 }
@@ -54,38 +54,47 @@
 }
 
 .horizon-grid__header {
-  border-bottom: 1px solid var(--color-hairline, #e2e4e7);
+  border-bottom: 1.5px solid var(--muted);
   padding-bottom: 6px;
   margin-bottom: 4px;
 }
 
 .horizon-grid__year-label {
-  font-size: 0.7rem;
-  color: var(--color-graphite-muted, #6b7076);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--graphite);
   text-align: center;
 }
 
 .horizon-grid__subheader {
   margin-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 4px;
 }
 
 .horizon-grid__quarter-label {
-  font-size: 0.62rem;
-  color: var(--color-graphite-faint, #9a9fa5);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
   text-align: center;
 }
 
+/* Portfolio name -- same weight/color treatment as the page title
+   itself (--graphite, bold), per feedback that these were too faint
+   to read against the previous muted-grey fallback. */
 .horizon-group__label {
   font-family: var(--font-display, 'Space Grotesk', sans-serif);
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--color-graphite-muted, #6b7076);
-  margin: 14px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--graphite);
+  margin: 16px 0 8px;
+  padding-left: 8px;
+  border-left: 3px solid var(--indigo);
 }
 
 .horizon-row__label {
-  font-size: 0.78rem;
-  color: var(--color-graphite, #23262b);
+  font-size: 13px;
+  color: var(--graphite);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -99,23 +108,27 @@
   gap: 6px;
   padding: 6px 10px;
   border-radius: 6px;
-  font-size: 0.72rem;
-  border: 1px solid var(--color-hairline-strong, #c9ccd1);
-  background: var(--color-cloud, #f4f5f6);
-  color: var(--color-graphite, #23262b);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid var(--muted);
+  background: var(--cloud);
+  color: var(--graphite);
   cursor: default;
   transition: box-shadow 0.15s ease;
 }
 
-.horizon-bar--raised    { background: var(--color-cloud, #f4f5f6); }
-.horizon-bar--accepted  { background: var(--color-teal-tint, #e4f3f1); border-color: var(--color-teal, #2f8f83); color: var(--color-teal-deep, #1f5c54); }
-.horizon-bar--assessed  { background: var(--color-indigo-tint, #eaeaf9); border-color: var(--color-indigo, #4f4fb0); color: var(--color-indigo-deep, #33337a); }
-.horizon-bar--promoted  { background: var(--color-teal-tint-strong, #d4ece8); border-color: var(--color-teal, #2f8f83); color: var(--color-teal-deep, #1f5c54); }
+/* Status accents pull directly from the brand pair (teal = Project
+   Verifi, indigo = Cert Verifi) rather than invented tint variables
+   that never existed in the stylesheet. */
+.horizon-bar--raised    { background: var(--cloud); border-color: var(--muted); }
+.horizon-bar--accepted  { background: color-mix(in srgb, var(--teal) 14%, white); border-color: #0d6b62; color: #0d6b62; }
+.horizon-bar--assessed  { background: color-mix(in srgb, var(--indigo) 12%, white); border-color: var(--indigo); color: #3a3dab; }
+.horizon-bar--promoted  { background: color-mix(in srgb, var(--teal) 24%, white); border-color: #0d6b62; color: #0d6b62; }
 
 .horizon-bar--locked {
   border-style: dashed;
-  color: var(--color-graphite-muted, #6b7076);
-  background: var(--color-cloud, #f4f5f6);
+  color: var(--muted);
+  background: var(--cloud);
 }
 
 .horizon-bar__body {
@@ -144,28 +157,37 @@
 .horizon-bar__handle--start { left: -2px; }
 .horizon-bar__handle--end { right: -2px; }
 
+.horizon-ghost {
+  border: 2px dashed var(--indigo);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--indigo) 18%, white);
+  opacity: 0.7;
+  pointer-events: none; /* never intercepts the pointerup that ends the drag */
+}
+
 .pill {
   font-size: 0.75rem;
   padding: 5px 12px;
   border-radius: 999px;
-  border: 1px solid var(--color-hairline-strong, #c9ccd1);
+  border: 1.5px solid var(--muted);
   background: transparent;
+  color: var(--graphite);
   cursor: pointer;
   transition: background 0.15s ease;
 }
-.pill:hover { background: var(--color-cloud, #f4f5f6); }
+.pill:hover { background: var(--cloud); }
 .pill:focus-visible {
-  outline: 2px solid var(--color-indigo, #4f4fb0);
+  outline: 2px solid var(--indigo);
   outline-offset: 2px;
 }
 .pill--primary {
-  background: var(--color-indigo, #4f4fb0);
-  border-color: var(--color-indigo, #4f4fb0);
+  background: var(--indigo);
+  border-color: var(--indigo);
   color: #fff;
 }
-.pill--primary:hover { background: var(--color-indigo-deep, #33337a); }
+.pill--primary:hover { opacity: 0.9; }
 .pill--primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.pill--ghost { color: var(--color-graphite-muted, #6b7076); }
+.pill--ghost { color: var(--muted); border-color: var(--hairline); }
 
 .horizon-legend {
   display: flex;
@@ -173,15 +195,15 @@
   gap: 16px;
   margin-top: 16px;
   padding-top: 10px;
-  border-top: 1px solid var(--color-hairline, #e2e4e7);
-  font-size: 0.7rem;
-  color: var(--color-graphite-faint, #9a9fa5);
+  border-top: 1.5px solid var(--muted);
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .horizon-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(20, 22, 28, 0.45); /* graphite-tinted overlay rather than plain black */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,38 +213,43 @@
 .horizon-modal {
   background: #fff;
   border-radius: 8px;
+  border: 1px solid var(--hairline);
   padding: 24px;
   width: min(400px, 90vw);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 24px rgba(20, 22, 28, 0.2);
 }
 
 .horizon-modal__title {
   font-family: var(--font-display, 'Space Grotesk', sans-serif);
-  font-size: 1.05rem;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--graphite);
   margin-bottom: 8px;
 }
 .horizon-modal__body {
-  font-size: 0.82rem;
-  color: var(--color-graphite-muted, #6b7076);
+  font-size: 13px;
+  color: var(--muted);
   margin-bottom: 14px;
 }
 .horizon-modal__label {
-  font-size: 0.75rem;
-  color: var(--color-graphite, #23262b);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--graphite);
   display: block;
   margin-bottom: 4px;
 }
 .horizon-modal__textarea {
   width: 100%;
-  border: 1px solid var(--color-hairline-strong, #c9ccd1);
+  border: 1.5px solid var(--muted);
   border-radius: 6px;
   padding: 8px;
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 13px;
+  color: var(--graphite);
   resize: vertical;
 }
 .horizon-modal__textarea:focus-visible {
-  outline: 2px solid var(--color-indigo, #4f4fb0);
+  outline: 2px solid var(--indigo);
   outline-offset: 2px;
 }
 .horizon-modal__actions {

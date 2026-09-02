@@ -11,6 +11,9 @@ interface DemandSummary {
   portfolio_name: string;
   raised_by_name: string | null;
   outcome_statement: string;
+  target_start_year: number | null;
+  target_start_quarter: number | null;
+  target_year_locked_agreed: boolean;
 }
 
 const CAPACITIES = [
@@ -39,11 +42,23 @@ export function AssessDemand() {
   const [capacity, setCapacity] = useState('portfolio_lead');
   const [capacityDetail, setCapacityDetail] = useState('');
   const [recommendation, setRecommendation] = useState('proceed');
+  const [targetStartYear, setTargetStartYear] = useState('');
+  const [targetStartQuarter, setTargetStartQuarter] = useState('');
+  const [targetYearError, setTargetYearError] = useState<string | null>(null);
+
+  const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+  const horizonYears = Array.from({ length: 5 }, (_, i) => currentFY + i);
 
   useEffect(() => {
     if (!id) return;
     apiFetch(`/api/demands/${id}`)
-      .then(setDemand)
+      .then((d: DemandSummary) => {
+        setDemand(d);
+        if (d.target_start_year) {
+          setTargetStartYear(String(d.target_start_year));
+          setTargetStartQuarter(d.target_start_quarter ? String(d.target_start_quarter) : '');
+        }
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [id]);
@@ -66,7 +81,24 @@ export function AssessDemand() {
           recommendation,
         }),
       });
-      navigate(`/demand/${id}`);
+
+      let targetYearFailed = false;
+      if (!demand?.target_start_year && targetStartYear) {
+        try {
+          await apiFetch(`/api/demands/${id}/target-year`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              targetStartYear: Number(targetStartYear),
+              targetStartQuarter: targetStartQuarter ? Number(targetStartQuarter) : undefined,
+            }),
+          });
+        } catch (tyErr) {
+          targetYearFailed = true;
+          setTargetYearError(tyErr instanceof Error ? tyErr.message : 'Could not set the target year.');
+        }
+      }
+
+      if (!targetYearFailed) navigate(`/demand/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to record assessment');
     } finally {
@@ -209,6 +241,44 @@ export function AssessDemand() {
             Assessment is analytical, but better numbers legitimately stop work. A stop
             recommendation does not itself stop the demand - that is a separate decision.
           </p>
+        </div>
+
+        <div className="login-field">
+          <label>Target year</label>
+          {demand.target_start_year ? (
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+              FY{String(demand.target_start_year).slice(-2)}
+              {demand.target_start_quarter ? ` Q${demand.target_start_quarter}` : ''} - already set.
+              {demand.target_year_locked_agreed
+                ? ' Locked on an Agreed annual plan.'
+                : ' Use the Five-Year Horizon view to move it (a portfolio lead or admin can drag it, with a reason).'}
+            </p>
+          ) : (
+            <>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 6px' }}>
+                No target year set yet. Realistically, which financial year does this land in?
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <select value={targetStartYear} onChange={(e) => setTargetStartYear(e.target.value)} style={selectStyle}>
+                  <option value="">Leave unset</option>
+                  {horizonYears.map((y) => <option key={y} value={y}>FY{String(y).slice(-2)}</option>)}
+                </select>
+                <select
+                  value={targetStartQuarter}
+                  onChange={(e) => setTargetStartQuarter(e.target.value)}
+                  disabled={!targetStartYear}
+                  style={selectStyle}
+                >
+                  <option value="">Whole year</option>
+                  <option value="1">Q1</option>
+                  <option value="2">Q2</option>
+                  <option value="3">Q3</option>
+                  <option value="4">Q4</option>
+                </select>
+              </div>
+              {targetYearError && <p className="login-error" style={{ marginTop: 6 }}>{targetYearError}</p>}
+            </>
+          )}
         </div>
 
         {error && <p className="login-error">{error}</p>}

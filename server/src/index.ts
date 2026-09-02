@@ -12,6 +12,8 @@ import businessCaseRouter from './routes/businessCase';
 import portfolioBudgetRouter from './routes/portfolioBudget';
 import annualPlanRouter from './routes/annualPlan';
 import governanceRouter from './routes/governance';
+import targetYearRouter from './routes/target-year-routes';
+import passwordResetRouter from './routes/passwordReset';
 
 dotenv.config();
 console.log('DATABASE_URL is:', JSON.stringify(process.env.DATABASE_URL));
@@ -43,6 +45,7 @@ app.use(cors({
   },
 }));
 app.use(express.json());
+app.use('/api', targetYearRouter); // must come before demandRouter -- /demands/horizon would otherwise be caught by demand.ts's /demands/:id and treated as an invalid demand id
 app.use('/api', demandRouter);
 app.use('/api', strategicGoalsRouter);
 app.use('/api', portfolioRouter);
@@ -52,6 +55,7 @@ app.use('/api', businessCaseRouter);
 app.use('/api', portfolioBudgetRouter);
 app.use('/api', annualPlanRouter);
 app.use('/api', governanceRouter);
+app.use(passwordResetRouter); // routes already declare their own /api/auth/... prefix internally
 
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });

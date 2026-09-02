@@ -20,6 +20,7 @@ const navGroups = [
       { to: '/portfolio', label: 'Portfolio rollup' },
       { to: '/demand', label: 'All demand' },
       { to: '/planning', label: 'Annual planning', requires: 'planning.edit' },
+      { to: '/horizon', label: 'Five-year horizon' },
       { to: '/goals', label: 'Strategic goals' },
       { to: '/budgets', label: 'Portfolio budgets' },
       { to: '/portfolio-admin', label: 'Portfolio config', requires: 'org.manage' },

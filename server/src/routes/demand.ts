@@ -66,6 +66,13 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
                 d.date_driver_type, d.date_driver_detail,
                 d.claimed_cost, d.claimed_benefit,
                 d.confidential, d.raised_by,
+                d.target_start_year, d.target_start_quarter,
+                d.target_end_year, d.target_end_quarter,
+                EXISTS (
+                  SELECT 1 FROM annual_plan_item api
+                  JOIN annual_plan ap ON ap.id = api.plan_id
+                  WHERE api.demand_id = d.id AND ap.status = 'agreed'
+                ) AS target_year_locked_agreed,
                 d.assigned_assessor_id, assigned_assessor.display_name AS assigned_assessor_name,
                 p.name AS portfolio_name,
                 sub.name AS delivering_sub_portfolio_name,
@@ -333,6 +340,8 @@ const createDemandSchema = z.object({
   scores: z.array(scoreSchema).min(1, 'Priority scoring is required'),
   strategicGoalId: looseUuid().optional(),
   alignmentNotes: z.string().optional(),
+  targetStartYear: z.number().int().optional(),
+  targetStartQuarter: z.number().int().min(1).max(4).nullable().optional(),
 });
 
 router.post('/demands', requireAuth, async (req, res) => {
@@ -345,6 +354,7 @@ router.post('/demands', requireAuth, async (req, res) => {
     title, description, outcomeStatement, portfolioId, deliveringSubPortfolioId, sponsorUserId, needByDate,
     adoptionChangeType, dateDriverType, dateDriverDetail, claimedCost, claimedBenefit,
     confidential, criteria, scores, strategicGoalId, alignmentNotes,
+    targetStartYear, targetStartQuarter,
   } = parsed.data;
   const { userId, organizationId } = req.user!;
 
@@ -367,12 +377,18 @@ router.post('/demands', requireAuth, async (req, res) => {
            (id, organization_id, portfolio_id, delivering_sub_portfolio_id, title, description, outcome_statement,
             raised_by, sponsor_user_id, need_by_date, raised_date, status,
             adoption_change_type, date_driver_type, date_driver_detail,
-            claimed_cost, claimed_benefit, confidential)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, 'raised', $10, $11, $12, $13, $14, $15)
+            claimed_cost, claimed_benefit, confidential,
+            target_start_year, target_start_quarter, target_end_year, target_end_quarter,
+            target_year_set_by, target_year_set_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, 'raised', $10, $11, $12, $13, $14, $15,
+                 $16, $17, $16, $17,
+                 CASE WHEN $16::int IS NOT NULL THEN $7::uuid ELSE NULL::uuid END,
+                 CASE WHEN $16::int IS NOT NULL THEN now() ELSE NULL::timestamptz END)
          RETURNING id, title, status, raised_date`,
         [organizationId, portfolioId, deliveringSubPortfolioId ?? null, title, description, outcomeStatement, userId, sponsorUserId,
          needByDate ?? null, adoptionChangeType ?? null, dateDriverType ?? 'none', dateDriverDetail ?? null,
-         claimedCost, claimedBenefit, confidential]
+         claimedCost, claimedBenefit, confidential,
+         targetStartYear ?? null, targetStartQuarter ?? null]
       );
 
       const newDemand = demandResult.rows[0];

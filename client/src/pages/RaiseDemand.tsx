@@ -55,6 +55,11 @@ export function RaiseDemand() {
   const [strategicGoalId, setStrategicGoalId] = useState('');
   const [alignmentNotes, setAlignmentNotes] = useState('');
   const [confidential, setConfidential] = useState(false);
+  const [targetStartYear, setTargetStartYear] = useState('');
+  const [targetStartQuarter, setTargetStartQuarter] = useState('');
+
+  const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+  const horizonYears = Array.from({ length: 5 }, (_, i) => currentFY + i);
 
   const [selectedDimensions, setSelectedDimensions] = useState<Set<Criterion['dimension']>>(new Set(['adoption']));
   const [criteria, setCriteria] = useState<Record<string, Criterion>>({
@@ -162,6 +167,8 @@ export function RaiseDemand() {
           scores: scorePayload,
           strategicGoalId: strategicGoalId || undefined,
           alignmentNotes: alignmentNotes || undefined,
+          targetStartYear: targetStartYear ? Number(targetStartYear) : undefined,
+          targetStartQuarter: targetStartQuarter ? Number(targetStartQuarter) : undefined,
         }),
       });
       navigate(`/demand/${demand.id}`);
@@ -308,7 +315,34 @@ export function RaiseDemand() {
           )}
         </div>
 
-        <div className="login-field">
+        <div className="login-field" style={{ marginTop: '1.25rem' }}>
+          <label>Target year (optional)</label>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 6px' }}>
+            Realistically, which financial year does this land in? Shows up on the
+            Five-Year Horizon view. Leave blank if you're not sure yet - an assessor
+            can set this later instead.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <select value={targetStartYear} onChange={(e) => setTargetStartYear(e.target.value)} style={selectStyle}>
+              <option value="">No target year yet</option>
+              {horizonYears.map((y) => <option key={y} value={y}>FY{String(y).slice(-2)}</option>)}
+            </select>
+            <select
+              value={targetStartQuarter}
+              onChange={(e) => setTargetStartQuarter(e.target.value)}
+              disabled={!targetStartYear}
+              style={selectStyle}
+            >
+              <option value="">Whole year</option>
+              <option value="1">Q1</option>
+              <option value="2">Q2</option>
+              <option value="3">Q3</option>
+              <option value="4">Q4</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="login-field" style={{ marginTop: '1.25rem' }}>
           <label>Linked strategic goal (optional)</label>
           <select value={strategicGoalId} onChange={(e) => setStrategicGoalId(e.target.value)} style={selectStyle}>
             <option value="">No link</option>

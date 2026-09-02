@@ -47,6 +47,9 @@ interface DemandDetail {
   criteria: Criterion[]; raci: Raci | null; scores: Score[]; priority: Priority;
   strategyLinks: StrategyLink[];
   businessCaseId: string | null;
+  target_start_year: number | null; target_start_quarter: number | null;
+  target_end_year: number | null; target_end_quarter: number | null;
+  target_year_locked_agreed: boolean;
 }
 
 const DATE_DRIVER_LABEL: Record<string, string> = {
@@ -80,6 +83,35 @@ export function DemandDetail() {
   const [stopReason, setStopReason] = useState('');
   const [stopError, setStopError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
+
+  const [settingTargetYear, setSettingTargetYear] = useState(false);
+  const [targetStartYear, setTargetStartYear] = useState('');
+  const [targetStartQuarter, setTargetStartQuarter] = useState('');
+  const [targetYearError, setTargetYearError] = useState<string | null>(null);
+  const [targetYearSaving, setTargetYearSaving] = useState(false);
+  const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+  const horizonYears = Array.from({ length: 5 }, (_, i) => currentFY + i);
+
+  async function handleSetTargetYear() {
+    if (!id || !targetStartYear) return;
+    setTargetYearSaving(true);
+    setTargetYearError(null);
+    try {
+      await apiFetch(`/api/demands/${id}/target-year`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          targetStartYear: Number(targetStartYear),
+          targetStartQuarter: targetStartQuarter ? Number(targetStartQuarter) : undefined,
+        }),
+      });
+      setSettingTargetYear(false);
+      load();
+    } catch (err) {
+      setTargetYearError(err instanceof Error ? err.message : 'Could not set the target year.');
+    } finally {
+      setTargetYearSaving(false);
+    }
+  }
 
   function load() {
     if (!id) return;
@@ -296,6 +328,53 @@ export function DemandDetail() {
           ))}
         </div>
       )}
+
+      <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+        <div className="goal-card__meta" style={{ marginBottom: 8 }}>Five-year horizon</div>
+        {demand.target_start_year ? (
+          <>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16 }}>
+              FY{String(demand.target_start_year).slice(-2)}
+              {demand.target_start_quarter ? ` Q${demand.target_start_quarter}` : ''}
+              {demand.target_end_year && demand.target_end_year !== demand.target_start_year && (
+                <> &ndash; FY{String(demand.target_end_year).slice(-2)}{demand.target_end_quarter ? ` Q${demand.target_end_quarter}` : ''}</>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              {demand.target_year_locked_agreed
+                ? 'Locked - this demand is on an Agreed annual plan.'
+                : demand.date_driver_type && demand.date_driver_type !== 'none'
+                ? 'Locked - fixed date driver.'
+                : 'To move this, use the Five-Year Horizon view (a portfolio lead or admin can drag it, with a reason).'}
+            </p>
+          </>
+        ) : settingTargetYear ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 8 }}>
+              <select value={targetStartYear} onChange={(e) => setTargetStartYear(e.target.value)}
+                style={{ width: '100%', padding: 10, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 14 }}>
+                <option value="">Select year</option>
+                {horizonYears.map((y) => <option key={y} value={y}>FY{String(y).slice(-2)}</option>)}
+              </select>
+              <select value={targetStartQuarter} onChange={(e) => setTargetStartQuarter(e.target.value)} disabled={!targetStartYear}
+                style={{ width: '100%', padding: 10, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 14 }}>
+                <option value="">Whole year</option>
+                <option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option>
+              </select>
+            </div>
+            {targetYearError && <p className="login-error">{targetYearError}</p>}
+            <button className="btn btn--project" disabled={!targetStartYear || targetYearSaving} onClick={handleSetTargetYear}>
+              {targetYearSaving ? 'Saving...' : 'Save target year'}
+            </button>{' '}
+            <button className="btn btn--outline" onClick={() => setSettingTargetYear(false)}>Cancel</button>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>Not set yet.</p>
+            <button className="btn btn--outline" onClick={() => setSettingTargetYear(true)}>Set target year</button>
+          </>
+        )}
+      </div>
 
       {(demand.claimed_cost !== null || demand.assessment) && (
         <div className="goal-card" style={{ marginBottom: '1.25rem' }}>

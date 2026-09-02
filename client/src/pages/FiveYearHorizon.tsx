@@ -1,15 +1,6 @@
-// client/src/pages/FiveYearHorizon.tsx
-//
-// Reads existing design tokens (graphite/teal/indigo/cloud/hairline,
-// goal-card, pill classes) -- adjust class names below if the actual
-// token/class names in the codebase differ from what's in memory.
-//
-// ASSUMPTION: an authenticated fetch helper `apiFetch` exists
-// elsewhere in client/src (used by other pages for /api calls with
-// the Firebase auth token attached). Swap for the real import.
-
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { apiFetch } from '../lib/apiFetch';
+import { apiFetch } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
 import './FiveYearHorizon.css';
 
 type Quarter = 1 | 2 | 3 | 4 | null;
@@ -35,15 +26,18 @@ const STATUS_LABEL: Record<string, string> = {
   promoted: 'Promoted',
 };
 
+// ASSUMPTION: FY = calendar year of April start (UK Green Book
+// convention referenced elsewhere in this project). Adjust if the
+// org's actual FY boundary differs.
 function currentFinancialYear(): number {
-  // ASSUMPTION: FY = calendar year of April start, matching UK Green
-  // Book convention referenced elsewhere in this project. Adjust if
-  // the org's actual FY boundary differs.
   const now = new Date();
   return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
 }
 
-export default function FiveYearHorizon({ canReassign }: { canReassign: boolean }) {
+export function FiveYearHorizon() {
+  const { has } = usePermissions();
+  const canReassign = has('demand.reassign_target_year');
+
   const [demands, setDemands] = useState<HorizonDemand[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,17 +51,23 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
   } | null>(null);
   const [reasonText, setReasonText] = useState('');
 
+  // Live preview shown during a drag/resize -- separate from
+  // reassignTarget so updating it every pointermove never opens the
+  // confirmation modal. Only the demand id + column span, since that's
+  // all the ghost outline needs to render.
+  const [dragPreview, setDragPreview] = useState<{ demandId: string; start: number; span: number } | null>(null);
+
   const startYear = currentFinancialYear();
   const years = useMemo(() => Array.from({ length: 5 }, (_, i) => startYear + i), [startYear]);
-  const columns = quarterView ? years.flatMap((y) => [1, 2, 3, 4].map((q) => ({ year: y, quarter: q as Quarter }))) : years.map((y) => ({ year: y, quarter: null as Quarter }));
+  const columns = quarterView
+    ? years.flatMap((y) => [1, 2, 3, 4].map((q) => ({ year: y, quarter: q as Quarter })))
+    : years.map((y) => ({ year: y, quarter: null as Quarter }));
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch('/api/demands/horizon');
-      if (!res.ok) throw new Error('Could not load the five-year horizon.');
-      const data = await res.json();
+      const data = await apiFetch('/api/demands/horizon');
       setDemands(data.demands);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong loading the horizon.');
@@ -103,9 +103,6 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
     return { start, span: Math.max(1, end - start + 1) };
   }
 
-  // ── drag/resize interaction ──────────────────────────────────────
-  // Column width and grid ref used to translate pointer position into
-  // a target column index while dragging.
   const gridRef = useRef<HTMLDivElement>(null);
   const colCount = columns.length;
 
@@ -132,38 +129,59 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
   function beginDrag(d: HorizonDemand, mode: 'move' | 'resize-start' | 'resize-end') {
     if (!canReassign || d.is_agreed_locked || (d.date_driver_type && d.date_driver_type !== 'none')) return;
 
+    // Held in a plain variable during the drag, not React state --
+    // setting state here would re-render and open the confirmation modal
+    // on the very first pixel of movement, fighting the drag itself.
+    // Only committed to state (which opens the modal) once released.
+    let pending = {
+      demand: d,
+      toYear: d.target_start_year,
+      toQuarter: d.target_start_quarter,
+      toEndYear: d.target_end_year,
+      toEndQuarter: d.target_end_quarter,
+    };
+
+    // The ghost outline IS safe to put in state every move -- it's a
+    // separate piece of state from reassignTarget, so updating it can't
+    // open the modal. Throttled to one update per animation frame so
+    // fast pointer movement doesn't flood React with renders.
+    let rafId: number | null = null;
+
+    function publishPreview() {
+      const start = columnIndex(pending.toYear, pending.toQuarter);
+      const end = columnIndex(pending.toEndYear, pending.toEndQuarter ?? pending.toQuarter);
+      setDragPreview({ demandId: d.id, start, span: Math.max(1, end - start + 1) });
+      rafId = null;
+    }
+
     function onMove(e: PointerEvent) {
       const col = pointerToColumn(e.clientX);
       const { year, quarter } = columnToYearQuarter(col);
-      setReassignTarget((prev) => {
-        const base = prev ?? {
-          demand: d,
-          toYear: d.target_start_year,
-          toQuarter: d.target_start_quarter,
-          toEndYear: d.target_end_year,
-          toEndQuarter: d.target_end_quarter,
-        };
-        if (mode === 'move') {
-          const startCol = columnIndex(d.target_start_year, d.target_start_quarter);
-          const endCol = columnIndex(d.target_end_year, d.target_end_quarter ?? d.target_start_quarter);
-          const span = endCol - startCol;
-          const newStart = Math.min(colCount - 1 - span, col);
-          const s = columnToYearQuarter(newStart);
-          const e2 = columnToYearQuarter(newStart + span);
-          return { ...base, toYear: s.year, toQuarter: s.quarter, toEndYear: e2.year, toEndQuarter: e2.quarter };
-        }
-        if (mode === 'resize-start') {
-          return { ...base, toYear: year, toQuarter: quarter };
-        }
-        return { ...base, toEndYear: year, toEndQuarter: quarter };
-      });
+
+      if (mode === 'move') {
+        const startCol = columnIndex(d.target_start_year, d.target_start_quarter);
+        const endCol = columnIndex(d.target_end_year, d.target_end_quarter ?? d.target_start_quarter);
+        const span = endCol - startCol;
+        const newStart = Math.min(colCount - 1 - span, col);
+        const s = columnToYearQuarter(newStart);
+        const e2 = columnToYearQuarter(newStart + span);
+        pending = { ...pending, toYear: s.year, toQuarter: s.quarter, toEndYear: e2.year, toEndQuarter: e2.quarter };
+      } else if (mode === 'resize-start') {
+        pending = { ...pending, toYear: year, toQuarter: quarter };
+      } else {
+        pending = { ...pending, toEndYear: year, toEndQuarter: quarter };
+      }
+
+      if (rafId === null) rafId = requestAnimationFrame(publishPreview);
     }
 
     function onUp() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      // Leave reassignTarget set -- opens the reason modal (rendered
-      // below) rather than committing immediately.
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      setDragPreview(null);
+      // Only now, with the pointer released, does the modal open.
+      setReassignTarget(pending);
     }
 
     window.addEventListener('pointermove', onMove);
@@ -171,30 +189,23 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
   }
 
   async function confirmReassign() {
-    if (!reassignTarget) return;
-    if (!reasonText.trim()) return;
+    if (!reassignTarget || !reasonText.trim()) return;
     try {
-      const res = await apiFetch(`/api/demands/${reassignTarget.demand.id}/target-year/reassign`, {
+      await apiFetch(`/api/demands/${reassignTarget.demand.id}/target-year/reassign`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to_year: reassignTarget.toYear,
-          to_quarter: reassignTarget.toQuarter,
-          to_end_year: reassignTarget.toEndYear,
-          to_end_quarter: reassignTarget.toEndQuarter,
+          toYear: reassignTarget.toYear,
+          toQuarter: reassignTarget.toQuarter,
+          toEndYear: reassignTarget.toEndYear,
+          toEndQuarter: reassignTarget.toEndQuarter,
           reason: reasonText.trim(),
         }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? 'Could not move this demand.');
-        return;
-      }
       setReassignTarget(null);
       setReasonText('');
       await load();
-    } catch {
-      setError('Could not reach the server. Try again.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not move this demand.');
     }
   }
 
@@ -216,11 +227,7 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
     <div className="horizon-page">
       <div className="horizon-header">
         <h1 className="horizon-title">Five-year horizon</h1>
-        <button
-          className="pill pill--toggle"
-          onClick={() => setQuarterView((v) => !v)}
-          aria-pressed={quarterView}
-        >
+        <button className="pill pill--toggle" onClick={() => setQuarterView((v) => !v)} aria-pressed={quarterView}>
           {quarterView ? 'Year view' : 'Quarter view'}
         </button>
       </div>
@@ -261,15 +268,11 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
               const lock = lockIcon(d);
               const draggable = canReassign && !lock;
               return (
-                <div
-                  key={d.id}
-                  className="horizon-row"
-                  style={{ gridTemplateColumns: `110px repeat(${colCount}, 1fr)` }}
-                >
+                <div key={d.id} className="horizon-row" style={{ gridTemplateColumns: `110px repeat(${colCount}, 1fr)` }}>
                   <div className="horizon-row__label">{d.title}</div>
                   <div
                     className={`horizon-bar goal-card horizon-bar--${d.status}${lock ? ' horizon-bar--locked' : ''}`}
-                    style={{ gridColumn: `${start + 2} / span ${span}` }}
+                    style={{ gridColumn: `${start + 2} / span ${span}`, gridRow: 1 }}
                   >
                     {draggable && (
                       <span
@@ -278,10 +281,7 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
                         aria-label="Resize start"
                       />
                     )}
-                    <span
-                      className="horizon-bar__body"
-                      onPointerDown={() => draggable && beginDrag(d, 'move')}
-                    >
+                    <span className="horizon-bar__body" onPointerDown={() => draggable && beginDrag(d, 'move')}>
                       {lock === 'lock' && <span className="horizon-bar__icon" aria-hidden="true">🔒</span>}
                       {lock === 'clock' && <span className="horizon-bar__icon" aria-hidden="true">🕐</span>}
                       {!lock && draggable && <span className="horizon-bar__icon" aria-hidden="true">⠿</span>}
@@ -295,6 +295,12 @@ export default function FiveYearHorizon({ canReassign }: { canReassign: boolean 
                       />
                     )}
                   </div>
+                  {dragPreview?.demandId === d.id && (
+                    <div
+                      className="horizon-ghost"
+                      style={{ gridColumn: `${dragPreview.start + 2} / span ${dragPreview.span}`, gridRow: 1 }}
+                    />
+                  )}
                 </div>
               );
             })}

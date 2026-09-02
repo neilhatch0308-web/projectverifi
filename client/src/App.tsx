@@ -18,6 +18,7 @@ import { GovernanceTiers } from './pages/GovernanceTiers';
 import { RolesAdmin } from './pages/RolesAdmin';
 import { UserAdmin } from './pages/UserAdmin';
 import { PortfolioRollup } from './pages/PortfolioRollup';
+import { FiveYearHorizon } from './pages/FiveYearHorizon';
 import { MyHome } from './pages/MyHome';
 import { ComingSoon } from './pages/ComingSoon';
 import { IdleSessionGuard } from './components/IdleSessionGuard';
@@ -75,6 +76,7 @@ function App() {
                 <Route path="/budgets" element={<PortfolioBudgets />} />
                 <Route path="/portfolio-admin" element={<PortfolioAdmin />} />
                 <Route path="/planning" element={<AnnualPlanningBoard />} />
+                <Route path="/horizon" element={<FiveYearHorizon />} />
                 <Route path="/governance-tiers" element={<GovernanceTiers />} />
                 <Route path="/roles" element={<RolesAdmin />} />
                 <Route path="/users" element={<UserAdmin />} />

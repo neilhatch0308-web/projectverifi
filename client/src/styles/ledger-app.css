@@ -207,6 +207,45 @@ h1, h2, h3 {
 }
 .login-error { color: #c23; font-size: 13px; margin-bottom: 0.75rem; }
 
+/* client/src/styles/login-link-patch.css
+   Append this block into ledger-app.css near the other .login-* rules
+   (around line 208, after .login-error). Login.tsx already references
+   .login-link and .login-success -- they were never defined, so both
+   rendered unstyled. */
+
+.login-sub {
+  font-size: 13px;
+  color: var(--graphite-muted, #6b7076);
+  margin-bottom: 1.25rem;
+}
+
+.login-link {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--teal);
+  text-align: center;
+  cursor: pointer;
+}
+.login-link:hover {
+  text-decoration: underline;
+}
+.login-link:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.login-success {
+  color: var(--teal);
+  font-size: 13px;
+  margin-bottom: 0.75rem;
+}
+
 .app-brand {
   display: flex;
   align-items: center;
