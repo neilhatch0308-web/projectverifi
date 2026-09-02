@@ -103,8 +103,9 @@ if ($SkipSource) {
       --project $Project `
       --region $Region `
       --source ./server `
-      --set-env-vars "DB_USER=postgres,DB_NAME=postgres" `
+      --set-env-vars "DB_USER=postgres,DB_NAME=postgres,EMAIL_FROM=noreply@we-verifi.co.uk,EMAIL_FROM_NAME=Project Verifi" `
       --update-secrets DB_PASSWORD=ledger-db-password:latest `
+      --update-secrets BREVO_API_KEY=ledger-brevo-api-key:latest `
       --update-secrets INSTANCE_CONNECTION_NAME=ledger-db-connection-name:latest
 }
 

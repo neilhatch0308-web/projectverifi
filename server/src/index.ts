@@ -18,7 +18,30 @@ console.log('DATABASE_URL is:', JSON.stringify(process.env.DATABASE_URL));
 
 const app = express();
 app.use(helmet());
-app.use(cors());
+
+// Wide-open cors() was fine while this only ran locally; now it's reachable
+// over the public web it should only answer preflight/CORS checks for the
+// real frontend origin(s). ALLOWED_ORIGINS is a comma-separated list (e.g.
+// "https://ledger-rpvf-prod.web.app,https://we-verifi.co.uk") set in the
+// Cloud Run env config - not hardcoded here since the exact domain(s) are
+// deployment config, not application logic. Falls back to no origins
+// (same-origin-only) rather than wide-open if the env var is unset, so a
+// missed config step fails closed, not open.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // No Origin header = same-origin request (e.g. curl, server-to-server) - allow.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not permitted by CORS policy`));
+    }
+  },
+}));
 app.use(express.json());
 app.use('/api', demandRouter);
 app.use('/api', strategicGoalsRouter);

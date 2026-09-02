@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createCrossTabChannel } from '../lib/crossTabChannel';
 
 interface UseIdleTimeoutOptions {
   timeoutMs: number;
@@ -13,18 +14,22 @@ interface UseIdleTimeoutOptions {
 // timers, letting a genuinely idle session survive far longer than
 // intended. Checking elapsed real time every second is more reliable.
 //
-// Per-tab only, deliberately - activity in one tab doesn't reset the
-// timer in another. Cross-tab sync (BroadcastChannel/localStorage)
-// would close that gap but adds real complexity; flagging as a known
-// scope boundary rather than silently leaving it unmentioned.
+// Cross-tab synced via BroadcastChannel/localStorage (see crossTabChannel.ts):
+// activity in any tab resets every tab's clock, and a timeout firing in any
+// tab forces all tabs to sign out together. Previously per-tab only, which
+// meant an idle background tab could survive on a shared/public machine as
+// long as any other tab stayed active - closed as part of hardening this
+// for public web access.
 export function useIdleTimeout({ timeoutMs, warningMs, onTimeout, enabled }: UseIdleTimeoutOptions) {
   const [showWarning, setShowWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const lastActivityRef = useRef(Date.now());
   const firedRef = useRef(false);
 
-  const resetActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
+  // Local reset - updates this tab's own clock and UI, does NOT broadcast.
+  // Used internally by the broadcast listener to avoid an echo loop.
+  const applyActivity = useCallback((at: number) => {
+    lastActivityRef.current = at;
     firedRef.current = false;
     setShowWarning(false);
   }, []);
@@ -32,10 +37,33 @@ export function useIdleTimeout({ timeoutMs, warningMs, onTimeout, enabled }: Use
   useEffect(() => {
     if (!enabled) return;
 
-    resetActivity();
+    const now = Date.now();
+    applyActivity(now);
+
+    const channel = createCrossTabChannel((msg) => {
+      if (msg.type === 'activity') {
+        // Only ever extends the deadline, never shortens it - a stale
+        // message arriving out of order can't accidentally shrink the
+        // window another tab is legitimately still counting down.
+        if (msg.at > lastActivityRef.current) applyActivity(msg.at);
+      } else if (msg.type === 'timeout') {
+        if (!firedRef.current) {
+          firedRef.current = true;
+          setShowWarning(false);
+          onTimeout();
+        }
+      }
+    });
+
+    // User activity in THIS tab: update locally and tell every other tab.
+    const handleLocalActivity = () => {
+      const at = Date.now();
+      applyActivity(at);
+      channel.post({ type: 'activity', at });
+    };
 
     const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-    events.forEach((e) => window.addEventListener(e, resetActivity, { passive: true }));
+    events.forEach((e) => window.addEventListener(e, handleLocalActivity, { passive: true }));
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - lastActivityRef.current;
@@ -45,6 +73,8 @@ export function useIdleTimeout({ timeoutMs, warningMs, onTimeout, enabled }: Use
         if (!firedRef.current) {
           firedRef.current = true;
           setShowWarning(false);
+          // Tell every other tab to sign out too, then fire locally.
+          channel.post({ type: 'timeout' });
           onTimeout();
         }
       } else if (remaining <= warningMs) {
@@ -54,10 +84,22 @@ export function useIdleTimeout({ timeoutMs, warningMs, onTimeout, enabled }: Use
     }, 1000);
 
     return () => {
-      events.forEach((e) => window.removeEventListener(e, resetActivity));
+      events.forEach((e) => window.removeEventListener(e, handleLocalActivity));
       clearInterval(interval);
+      channel.close();
     };
-  }, [enabled, timeoutMs, warningMs, onTimeout, resetActivity]);
+  }, [enabled, timeoutMs, warningMs, onTimeout, applyActivity]);
+
+  // Public reset - called from the "Stay signed in" button. Broadcasts,
+  // same as genuine activity, since choosing to stay signed in IS activity.
+  const resetActivity = useCallback(() => {
+    const at = Date.now();
+    applyActivity(at);
+    // Re-create a throwaway channel just to post; cheap and avoids
+    // threading the effect's channel instance out through a ref for what
+    // is a rare, user-initiated action.
+    createCrossTabChannel(() => {}).post({ type: 'activity', at });
+  }, [applyActivity]);
 
   return { showWarning, secondsLeft, resetActivity };
 }

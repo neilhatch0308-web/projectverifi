@@ -1,0 +1,233 @@
+/* client/src/pages/FiveYearHorizon.css
+   References existing design tokens (graphite/teal/indigo/cloud/hairline).
+   Swap variable names below for the real ones if these differ from
+   what's defined in the project's global stylesheet. */
+
+.horizon-page {
+  padding: 24px;
+  font-family: var(--font-body, 'Inter', sans-serif);
+  animation: horizon-rise 0.3s ease-out;
+}
+
+@keyframes horizon-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.horizon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.horizon-title {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif);
+  font-size: 1.4rem;
+  font-weight: 500;
+  color: var(--color-graphite, #23262b);
+}
+
+.horizon-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-graphite-muted, #6b7076);
+}
+.horizon-state--error,
+.horizon-inline-error {
+  color: var(--color-danger, #b03a3a);
+}
+
+.horizon-grid {
+  overflow-x: auto;
+  border: 1px solid var(--color-hairline, #e2e4e7);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.horizon-grid__header,
+.horizon-grid__subheader,
+.horizon-row {
+  display: grid;
+  align-items: center;
+  gap: 4px;
+}
+
+.horizon-grid__header {
+  border-bottom: 1px solid var(--color-hairline, #e2e4e7);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.horizon-grid__year-label {
+  font-size: 0.7rem;
+  color: var(--color-graphite-muted, #6b7076);
+  text-align: center;
+}
+
+.horizon-grid__subheader {
+  margin-bottom: 8px;
+}
+
+.horizon-grid__quarter-label {
+  font-size: 0.62rem;
+  color: var(--color-graphite-faint, #9a9fa5);
+  text-align: center;
+}
+
+.horizon-group__label {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-graphite-muted, #6b7076);
+  margin: 14px 0 6px;
+}
+
+.horizon-row__label {
+  font-size: 0.78rem;
+  color: var(--color-graphite, #23262b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.horizon-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  border: 1px solid var(--color-hairline-strong, #c9ccd1);
+  background: var(--color-cloud, #f4f5f6);
+  color: var(--color-graphite, #23262b);
+  cursor: default;
+  transition: box-shadow 0.15s ease;
+}
+
+.horizon-bar--raised    { background: var(--color-cloud, #f4f5f6); }
+.horizon-bar--accepted  { background: var(--color-teal-tint, #e4f3f1); border-color: var(--color-teal, #2f8f83); color: var(--color-teal-deep, #1f5c54); }
+.horizon-bar--assessed  { background: var(--color-indigo-tint, #eaeaf9); border-color: var(--color-indigo, #4f4fb0); color: var(--color-indigo-deep, #33337a); }
+.horizon-bar--promoted  { background: var(--color-teal-tint-strong, #d4ece8); border-color: var(--color-teal, #2f8f83); color: var(--color-teal-deep, #1f5c54); }
+
+.horizon-bar--locked {
+  border-style: dashed;
+  color: var(--color-graphite-muted, #6b7076);
+  background: var(--color-cloud, #f4f5f6);
+}
+
+.horizon-bar__body {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: grab;
+  user-select: none;
+}
+.horizon-bar--locked .horizon-bar__body {
+  cursor: default;
+}
+
+.horizon-bar__icon {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.horizon-bar__handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.horizon-bar__handle--start { left: -2px; }
+.horizon-bar__handle--end { right: -2px; }
+
+.pill {
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-hairline-strong, #c9ccd1);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.pill:hover { background: var(--color-cloud, #f4f5f6); }
+.pill:focus-visible {
+  outline: 2px solid var(--color-indigo, #4f4fb0);
+  outline-offset: 2px;
+}
+.pill--primary {
+  background: var(--color-indigo, #4f4fb0);
+  border-color: var(--color-indigo, #4f4fb0);
+  color: #fff;
+}
+.pill--primary:hover { background: var(--color-indigo-deep, #33337a); }
+.pill--primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.pill--ghost { color: var(--color-graphite-muted, #6b7076); }
+
+.horizon-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-hairline, #e2e4e7);
+  font-size: 0.7rem;
+  color: var(--color-graphite-faint, #9a9fa5);
+}
+
+.horizon-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.horizon-modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: min(400px, 90vw);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.horizon-modal__title {
+  font-family: var(--font-display, 'Space Grotesk', sans-serif);
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+}
+.horizon-modal__body {
+  font-size: 0.82rem;
+  color: var(--color-graphite-muted, #6b7076);
+  margin-bottom: 14px;
+}
+.horizon-modal__label {
+  font-size: 0.75rem;
+  color: var(--color-graphite, #23262b);
+  display: block;
+  margin-bottom: 4px;
+}
+.horizon-modal__textarea {
+  width: 100%;
+  border: 1px solid var(--color-hairline-strong, #c9ccd1);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+.horizon-modal__textarea:focus-visible {
+  outline: 2px solid var(--color-indigo, #4f4fb0);
+  outline-offset: 2px;
+}
+.horizon-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
