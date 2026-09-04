@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface Criterion {
   id: string; name: string; dimension: string; unit: string | null;
@@ -65,6 +66,7 @@ const DIMENSION_LABEL: Record<string, string> = {
 
 export function DemandDetail() {
   const { id } = useParams();
+  const { has } = usePermissions();
   const [demand, setDemand] = useState<DemandDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -467,17 +469,19 @@ export function DemandDetail() {
             Not yet categorised - still counts toward {demand.portfolio_name}'s budget until assigned
           </div>
         )}
-        <select
-          value={demand.delivering_sub_portfolio_id ?? ''}
-          onChange={(e) => assignSubPortfolio(e.target.value)}
-          disabled={assigning}
-          style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, marginTop: 10 }}
-        >
-          <option value="">Not yet categorised</option>
-          {subPortfolios.map((s) => (
-            <option key={s.id} value={s.id}>{s.parent_name} &rarr; {s.name}</option>
-          ))}
-        </select>
+        {has('demand.assess') && (
+          <select
+            value={demand.delivering_sub_portfolio_id ?? ''}
+            onChange={(e) => assignSubPortfolio(e.target.value)}
+            disabled={assigning}
+            style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, marginTop: 10 }}
+          >
+            <option value="">Not yet categorised</option>
+            {subPortfolios.map((s) => (
+              <option key={s.id} value={s.id}>{s.parent_name} &rarr; {s.name}</option>
+            ))}
+          </select>
+        )}
         {assignError && <p className="login-error" style={{ marginTop: 8 }}>{assignError}</p>}
       </div>
 
@@ -569,7 +573,7 @@ export function DemandDetail() {
         </div>
       )}
 
-      {demand.status === 'raised' && (
+      {demand.status === 'raised' && has('demand.triage') && (
         <div className="goal-card">
           <div className="goal-card__name" style={{ marginBottom: 10 }}>Triage assessment</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -628,24 +632,28 @@ export function DemandDetail() {
 
       {demand.status === 'accepted' && (
         <div>
-          <div className="goal-card" style={{ marginBottom: 12 }}>
-            <div className="goal-card__meta" style={{ marginBottom: 6 }}>Tagged assessor</div>
-            <select
-              value={demand.assigned_assessor_id ?? ''}
-              onChange={(e) => reassignAssessor(e.target.value)}
-              style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 13.5 }}
-            >
-              <option value="">Open - anyone who can assess picks it up</option>
-              {[...users].sort((a, b) => Number(b.is_senior) - Number(a.is_senior)).map((u) => (
-                <option key={u.id} value={u.id}>{u.display_name}</option>
-              ))}
-            </select>
-          </div>
+          {has('demand.triage') && (
+            <div className="goal-card" style={{ marginBottom: 12 }}>
+              <div className="goal-card__meta" style={{ marginBottom: 6 }}>Tagged assessor</div>
+              <select
+                value={demand.assigned_assessor_id ?? ''}
+                onChange={(e) => reassignAssessor(e.target.value)}
+                style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 13.5 }}
+              >
+                <option value="">Open - anyone who can assess picks it up</option>
+                {[...users].sort((a, b) => Number(b.is_senior) - Number(a.is_senior)).map((u) => (
+                  <option key={u.id} value={u.id}>{u.display_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <Link to={`/demand/${demand.id}/assess`} className="btn btn--project" style={{ textDecoration: 'none' }}>
-              Assess (P75)
-            </Link>
-            {stopButton}
+            {has('demand.assess') && (
+              <Link to={`/demand/${demand.id}/assess`} className="btn btn--project" style={{ textDecoration: 'none' }}>
+                Assess (P75)
+              </Link>
+            )}
+            {has('demand.triage') && stopButton}
           </div>
           {stopForm}
         </div>
@@ -654,10 +662,12 @@ export function DemandDetail() {
       {demand.status === 'assessed' && (
         <div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Link to={`/demand/${demand.id}/accept`} className="btn btn--project" style={{ textDecoration: 'none' }}>
-              Build RACI and formally promote
-            </Link>
-            {stopButton}
+            {has('demand.triage') && (
+              <Link to={`/demand/${demand.id}/accept`} className="btn btn--project" style={{ textDecoration: 'none' }}>
+                Build RACI and formally promote
+              </Link>
+            )}
+            {has('demand.triage') && stopButton}
           </div>
           {stopForm}
         </div>

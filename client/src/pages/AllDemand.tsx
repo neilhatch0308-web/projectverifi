@@ -14,6 +14,8 @@ interface Demand {
   business_case_decision: string | null;
   stopped_at: string | null;
   confidential: boolean;
+  portfolio_id: string;
+  portfolio_name: string;
 }
 
 interface Stage { key: string; label: string; statuses: string[]; highlight?: boolean; exit?: boolean; }
@@ -74,6 +76,7 @@ function DemandCard({ d, stage }: { d: Demand; stage: Stage }) {
             }}>FIXED</span>
           )}
         </div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 5 }}>{d.portfolio_name}</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
           {stage.exit ? (
             <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px' }}>Stopped</span>
@@ -93,15 +96,43 @@ function DemandCard({ d, stage }: { d: Demand; stage: Stage }) {
 
 export function AllDemand() {
   const [demands, setDemands] = useState<Demand[]>([]);
+  const [portfolios, setPortfolios] = useState<{ id: string; name: string }[]>([]);
+  const [selectedPortfolioIds, setSelectedPortfolioIds] = useState<Set<string>>(new Set());
+  const [portfolioMenuOpen, setPortfolioMenuOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch('/api/demands').then(setDemands).catch((err) => setError(err.message)).finally(() => setLoading(false));
+    Promise.all([apiFetch('/api/demands'), apiFetch('/api/portfolios')])
+      .then(([d, p]) => {
+        setDemands(d);
+        setPortfolios(p);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  const filtered = demands.filter((d) => d.title.toLowerCase().includes(search.toLowerCase()));
+  function togglePortfolio(id: string) {
+    setSelectedPortfolioIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const portfolioFilterLabel =
+    selectedPortfolioIds.size === 0
+      ? 'All portfolios'
+      : selectedPortfolioIds.size === 1
+      ? portfolios.find((p) => selectedPortfolioIds.has(p.id))?.name ?? '1 selected'
+      : `${selectedPortfolioIds.size} portfolios selected`;
+
+  const filtered = demands.filter(
+    (d) =>
+      d.title.toLowerCase().includes(search.toLowerCase()) &&
+      (selectedPortfolioIds.size === 0 || selectedPortfolioIds.has(d.portfolio_id))
+  );
 
   return (
     <div>
@@ -113,7 +144,70 @@ export function AllDemand() {
         <Link to="/demand/raise" className="btn btn--project" style={{ textDecoration: 'none' }}>+ Raise demand</Link>
       </div>
 
-      <input type="text" placeholder="Search by title..." value={search} onChange={(e) => setSearch(e.target.value)} className="search-input" />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+        <input
+          type="text"
+          placeholder="Search by title..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="search-input"
+          style={{ margin: 0 }}
+        />
+
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setPortfolioMenuOpen((o) => !o)}
+            className="btn btn--outline"
+            style={{
+              fontSize: 14, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6,
+              borderRadius: 'var(--radius)', boxSizing: 'border-box', height: 42,
+            }}
+          >
+            {portfolioFilterLabel}
+            <span style={{ fontSize: 9 }}>&#9662;</span>
+          </button>
+
+          {portfolioMenuOpen && (
+            <>
+              {/* Click-outside catcher */}
+              <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setPortfolioMenuOpen(false)} />
+              <div
+                style={{
+                  position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 11,
+                  background: '#fff', border: '1px solid var(--hairline)', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(20,22,28,0.15)', padding: 10, minWidth: 220, maxHeight: 320, overflowY: 'auto',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPortfolioIds(new Set())}
+                    className="btn btn--outline"
+                    style={{ fontSize: 11, padding: '3px 8px' }}
+                  >
+                    All portfolios
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPortfolioIds(new Set(portfolios.map((p) => p.id)))}
+                    className="btn btn--outline"
+                    style={{ fontSize: 11, padding: '3px 8px' }}
+                  >
+                    Select all
+                  </button>
+                </div>
+                {portfolios.map((p) => (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 2px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={selectedPortfolioIds.has(p.id)} onChange={() => togglePortfolio(p.id)} />
+                    {p.name}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
       {loading && <p>Loading...</p>}
       {error && <p className="login-error">{error}</p>}

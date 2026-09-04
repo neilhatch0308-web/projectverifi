@@ -17,12 +17,11 @@ const navGroups = [
   {
     label: 'Organisation',
     items: [
-      { to: '/portfolio', label: 'Portfolio rollup' },
       { to: '/demand', label: 'All demand' },
       { to: '/planning', label: 'Annual planning', requires: 'planning.edit' },
-      { to: '/horizon', label: 'Five-year horizon' },
+      { to: '/horizon', label: 'Five-year horizon', requires: 'planning.edit' },
       { to: '/goals', label: 'Strategic goals' },
-      { to: '/budgets', label: 'Portfolio budgets' },
+      { to: '/budgets', label: 'Portfolio budgets', requires: 'budgets.manage' },
       { to: '/portfolio-admin', label: 'Portfolio config', requires: 'org.manage' },
       { to: '/governance-tiers', label: 'Governance tiers', requires: 'org.manage' },
     ],

@@ -200,6 +200,82 @@ const assignSubPortfolioSchema = z.object({
   reason: z.string().optional(),
 });
 
+// ---------- Shared: keep annual plan placement aligned with whoever
+// currently owns delivery ----------
+// Whenever the raising portfolio or delivering sub-portfolio changes,
+// the demand's committed budget should move with it -- Front Office
+// may have raised something that Back Office later took ownership of
+// delivering, and it's Back Office's envelope that should carry the
+// cost from that point on.
+//
+// Only moves items sitting in a DRAFT plan. An item in a Locked or
+// Agreed plan is left where it is and stays visible with a
+// portfolio_mismatch flag on the board (see /annual-plans/:id/board) --
+// moving spend out from under an already-locked or agreed commitment
+// is a bigger governance decision than a routine reassignment, and
+// belongs to a human via mid-year revision, not an automatic side
+// effect of changing a dropdown.
+async function syncPlanPlacementToOwningPortfolio(
+  client: any,
+  organizationId: string,
+  demandId: string,
+  changedBy: string
+) {
+  const demandRow = await client.query(
+    `SELECT d.portfolio_id, d.delivering_sub_portfolio_id, sub.parent_portfolio_id AS sub_parent_id
+       FROM demand d
+       LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
+      WHERE d.id = $1`,
+    [demandId]
+  );
+  if (demandRow.rows.length === 0) return;
+  const { portfolio_id: raisingPortfolioId, sub_parent_id: subParentId } = demandRow.rows[0];
+  const owningPortfolioId = subParentId ?? raisingPortfolioId;
+
+  const staleItems = await client.query(
+    `SELECT pi.id, pi.plan_id, pi.column_placement, pi.reason,
+            ap.financial_year, ap.status, ap.portfolio_id AS plan_portfolio_id
+       FROM annual_plan_item pi
+       JOIN annual_plan ap ON ap.id = pi.plan_id
+      WHERE pi.demand_id = $1
+        AND ap.portfolio_id <> $2
+        AND ap.status = 'draft'`,
+    [demandId, owningPortfolioId]
+  );
+
+  for (const item of staleItems.rows) {
+    let targetPlan = await client.query(
+      `SELECT id FROM annual_plan
+        WHERE portfolio_id = $1 AND financial_year = $2
+        ORDER BY version DESC LIMIT 1`,
+      [owningPortfolioId, item.financial_year]
+    );
+    let targetPlanId: string;
+    if (targetPlan.rows.length > 0) {
+      targetPlanId = targetPlan.rows[0].id;
+    } else {
+      const created = await client.query(
+        `INSERT INTO annual_plan (id, organization_id, portfolio_id, financial_year, version, status, created_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, 1, 'draft', $4)
+         RETURNING id`,
+        [organizationId, owningPortfolioId, item.financial_year, changedBy]
+      );
+      targetPlanId = created.rows[0].id;
+    }
+
+    await client.query(
+      `INSERT INTO annual_plan_item (id, plan_id, demand_id, column_placement, reason, moved_by, moved_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, now())
+       ON CONFLICT (plan_id, demand_id)
+       DO UPDATE SET column_placement = EXCLUDED.column_placement, reason = EXCLUDED.reason,
+                      moved_by = EXCLUDED.moved_by, moved_at = now()`,
+      [targetPlanId, demandId, item.column_placement, item.reason, changedBy]
+    );
+
+    await client.query(`DELETE FROM annual_plan_item WHERE id = $1`, [item.id]);
+  }
+}
+
 router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, requirePermission('demand.assess'), async (req, res) => {
   const parsed = assignSubPortfolioSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -229,6 +305,8 @@ router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, requirePermis
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
         [id, previousSubPortfolioId, subPortfolioId, reason ?? null, userId]
       );
+
+      await syncPlanPlacementToOwningPortfolio(client, organizationId, String(id), userId);
 
       return updated.rows[0];
     });
@@ -285,6 +363,8 @@ router.patch('/demands/:id/raising-portfolio', requireAuth, requirePermission('o
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
         [id, previousPortfolioId, portfolioId, reason ?? null, userId]
       );
+
+      await syncPlanPlacementToOwningPortfolio(client, organizationId, String(id), userId);
 
       return { demand: updated.rows[0] };
     });
@@ -628,7 +708,7 @@ const acceptDemandSchema = z.object({
   benefitOwnerId: looseUuid(),
 });
 
-router.post('/demands/:id/accept', requireAuth, async (req, res) => {
+router.post('/demands/:id/accept', requireAuth, requirePermission('demand.triage'), async (req, res) => {
   const parsed = acceptDemandSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, type DragEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 
 interface Portfolio { id: string; name: string; }
@@ -33,9 +34,11 @@ const DATE_DRIVER_SHORT: Record<string, string> = {
 };
 
 export function AnnualPlanningBoard() {
+  const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [portfolioId, setPortfolioId] = useState('all');
+  const [defaultApplied, setDefaultApplied] = useState(false);
   const [year, setYear] = useState(currentYear);
   const [board, setBoard] = useState<Board | null>(null);
   const [allBoards, setAllBoards] = useState<AllPortfoliosBoard | null>(null);
@@ -53,6 +56,26 @@ export function AnnualPlanningBoard() {
       setPortfolios(p);
     }).catch((err) => setError(err.message));
   }, []);
+
+  // Apply the user's default portfolio once, on first load only -- if
+  // they've already picked something manually (defaultApplied guards
+  // against a slow response landing after that), don't override it.
+  // "All portfolios" remains selectable regardless either way.
+  useEffect(() => {
+    apiFetch('/api/me')
+      .then((me: { defaultPortfolioId: string | null }) => {
+        if (!defaultApplied && me.defaultPortfolioId) {
+          setPortfolioId(me.defaultPortfolioId);
+        }
+        setDefaultApplied(true);
+      })
+      .catch(() => setDefaultApplied(true));
+  }, []);
+
+  function selectPortfolio(id: string) {
+    setDefaultApplied(true); // a manual pick always wins from here on
+    setPortfolioId(id);
+  }
 
   function loadBoard() {
     if (!portfolioId) return;
@@ -237,7 +260,7 @@ export function AnnualPlanningBoard() {
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)}
+          <select value={portfolioId} onChange={(e) => selectPortfolio(e.target.value)}
             style={{ padding: '6px 10px', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13 }}>
             <option value="all">All portfolios</option>
             {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -353,13 +376,14 @@ export function AnnualPlanningBoard() {
         draggable={!isLocked}
         onDragStart={(e) => handleDragStart(e, d.id)}
         onDragEnd={handleDragEnd}
+        onClick={() => navigate(`/demand/${d.id}`)}
         className="goal-card"
         style={{
           marginBottom: 8,
           borderLeft: hasDriver ? '3px solid #E8A317' : undefined,
           background: hasDriver ? 'rgba(232,163,23,0.03)' : undefined,
           opacity: isDragging ? 0.35 : 1,
-          cursor: isLocked ? 'default' : 'grab',
+          cursor: isLocked ? 'pointer' : 'grab',
           transition: 'opacity 0.12s ease',
         }}
       >
@@ -410,7 +434,7 @@ export function AnnualPlanningBoard() {
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <select value={portfolioId} onChange={(e) => setPortfolioId(e.target.value)}
+        <select value={portfolioId} onChange={(e) => selectPortfolio(e.target.value)}
           style={{ padding: '6px 10px', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13 }}>
           <option value="all">All portfolios</option>
           {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

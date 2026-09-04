@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface Goal {
   id: string;
@@ -30,6 +31,8 @@ const NEXT_ACTIONS: Record<string, { label: string; target: string }[]> = {
 };
 
 export function StrategicGoals() {
+  const { has } = usePermissions();
+  const canManage = has('org.manage');
   const currentCalendarYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentCalendarYear);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
@@ -103,7 +106,7 @@ export function StrategicGoals() {
           <h1 className="page-title">Strategic Goals</h1>
           <p className="page-subtitle">Top 5 corporate goals, declared annually - locked once declared, status can still change</p>
         </div>
-        {openSlots > 0 && (
+        {canManage && openSlots > 0 && (
           <button onClick={() => setShowAddForm((s) => !s)} className="btn btn--project">
             + Add goal
           </button>
@@ -160,7 +163,7 @@ export function StrategicGoals() {
               </div>
               {g.description && <div className="goal-card__desc" style={{ marginTop: 6 }}>{g.description}</div>}
 
-              {NEXT_ACTIONS[g.status].length > 0 && (
+              {canManage && NEXT_ACTIONS[g.status].length > 0 && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
                   {NEXT_ACTIONS[g.status].map((action) => (
                     <button

@@ -40,6 +40,9 @@ export function PortfolioRollup() {
     new Set(['raised', 'accepted', 'assessed', 'promoted'])
   );
 
+  const [selectedPortfolioIds, setSelectedPortfolioIds] = useState<Set<string>>(new Set());
+  const [portfolioMenuOpen, setPortfolioMenuOpen] = useState(false);
+
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverPortfolioId, setDragOverPortfolioId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<string | null>(null);
@@ -63,6 +66,25 @@ export function PortfolioRollup() {
       return next;
     });
   }
+
+  function togglePortfolio(id: string) {
+    setSelectedPortfolioIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const portfolioFilterLabel =
+    selectedPortfolioIds.size === 0
+      ? 'All portfolios'
+      : selectedPortfolioIds.size === 1
+      ? portfolios.find((p) => selectedPortfolioIds.has(p.id))?.name ?? '1 selected'
+      : `${selectedPortfolioIds.size} portfolios selected`;
+
+  const visiblePortfolios = selectedPortfolioIds.size === 0
+    ? portfolios
+    : portfolios.filter((p) => selectedPortfolioIds.has(p.id));
 
   const visibleDemands = demands.filter((d) => statusFilter.has(d.status));
 
@@ -128,24 +150,79 @@ export function PortfolioRollup() {
       {error && <p className="login-error">{error}</p>}
 
       {!loading && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-          {ALL_STATUSES.map((s) => (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {ALL_STATUSES.map((s) => (
+              <button
+                key={s}
+                onClick={() => toggleStatus(s)}
+                className={`pill ${statusFilter.has(s) ? 'pill--teal' : 'pill--muted'}`}
+                style={{ border: 'none', cursor: 'pointer' }}
+              >
+                {STATUS_LABELS[s]}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ position: 'relative' }}>
             <button
-              key={s}
-              onClick={() => toggleStatus(s)}
-              className={`pill ${statusFilter.has(s) ? 'pill--teal' : 'pill--muted'}`}
-              style={{ border: 'none', cursor: 'pointer' }}
+              type="button"
+              onClick={() => setPortfolioMenuOpen((o) => !o)}
+              className="btn btn--outline"
+              style={{
+                fontSize: 14, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6,
+                borderRadius: 'var(--radius)', boxSizing: 'border-box', height: 42,
+              }}
             >
-              {STATUS_LABELS[s]}
+              {portfolioFilterLabel}
+              <span style={{ fontSize: 9 }}>&#9662;</span>
             </button>
-          ))}
+
+            {portfolioMenuOpen && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setPortfolioMenuOpen(false)} />
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 11,
+                    background: '#fff', border: '1px solid var(--hairline)', borderRadius: 10,
+                    boxShadow: '0 8px 24px rgba(20,22,28,0.15)', padding: 10, minWidth: 220, maxHeight: 320, overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortfolioIds(new Set())}
+                      className="btn btn--outline"
+                      style={{ fontSize: 11, padding: '3px 8px' }}
+                    >
+                      All portfolios
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortfolioIds(new Set(portfolios.map((p) => p.id)))}
+                      className="btn btn--outline"
+                      style={{ fontSize: 11, padding: '3px 8px' }}
+                    >
+                      Select all
+                    </button>
+                  </div>
+                  {portfolios.map((p) => (
+                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 2px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selectedPortfolioIds.has(p.id)} onChange={() => togglePortfolio(p.id)} />
+                      {p.name}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
       {!loading && (
         <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', minWidth: portfolios.length * 260 }}>
-            {portfolios.map((p) => {
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', minWidth: visiblePortfolios.length * 260 }}>
+            {visiblePortfolios.map((p) => {
               const items = visibleDemands.filter((d) => d.portfolio_id === p.id);
               return (
                 <div

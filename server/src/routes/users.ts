@@ -38,8 +38,17 @@ router.get('/users', requireAuth, async (req, res) => {
 // own) regardless of what's in `permissions` - that array only lists
 // the ADDITIONAL capabilities their roles grant.
 router.get('/me', requireAuth, async (req, res) => {
-  const { userId, displayName, email, permissions } = req.user!;
-  res.json({ userId, displayName, email, permissions });
+  const { userId, organizationId, displayName, email, permissions } = req.user!;
+  try {
+    const defaultPortfolioId = await withTenantContext(organizationId, async (client) => {
+      const result = await client.query(`SELECT default_portfolio_id FROM app_user WHERE id = $1`, [userId]);
+      return result.rows[0]?.default_portfolio_id ?? null;
+    });
+    res.json({ userId, displayName, email, permissions, defaultPortfolioId });
+  } catch (err) {
+    console.error('Failed to fetch current user:', err);
+    res.status(500).json({ error: 'Failed to fetch current user' });
+  }
 });
 
 // ---------- Permission catalog (fixed, for building the roles UI) ----------
@@ -194,11 +203,13 @@ router.get('/users/admin', requireAuth, requirePermission('users.manage'), async
     const users = await withTenantContext(organizationId, async (client) => {
       const result = await client.query(
         `SELECT u.id, u.display_name, u.email, u.is_active,
+                u.default_portfolio_id, dp.name AS default_portfolio_name,
                 COALESCE(array_agg(ur.role_id) FILTER (WHERE ur.role_id IS NOT NULL), '{}') AS role_ids
          FROM app_user u
          LEFT JOIN app_user_role ur ON ur.user_id = u.id
+         LEFT JOIN portfolio dp ON dp.id = u.default_portfolio_id
          WHERE u.organization_id = $1
-         GROUP BY u.id
+         GROUP BY u.id, dp.name
          ORDER BY u.display_name`,
         [organizationId]
       );
@@ -208,6 +219,41 @@ router.get('/users/admin', requireAuth, requirePermission('users.manage'), async
   } catch (err) {
     console.error('Failed to fetch users for admin:', err);
     res.status(500).json({ error: 'Failed to fetch users for admin' });
+  }
+});
+
+// ---------- User admin: set a user's default portfolio (Annual
+// Planning landing view only -- "All portfolios" always stays
+// selectable regardless; this doesn't gate visibility or access) ----------
+const setDefaultPortfolioSchema = z.object({ portfolioId: looseUuid().nullable() });
+
+router.patch('/users/:id/default-portfolio', requireAuth, requirePermission('users.manage'), async (req, res) => {
+  const targetUserId = looseUuid().parse(req.params.id);
+  const parsed = setDefaultPortfolioSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId } = req.user!;
+  const { portfolioId } = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      if (portfolioId) {
+        const check = await client.query(`SELECT id FROM portfolio WHERE id = $1`, [portfolioId]);
+        if (check.rows.length === 0) return { notFound: 'portfolio' as const };
+      }
+      const updated = await client.query(
+        `UPDATE app_user SET default_portfolio_id = $1 WHERE id = $2 AND organization_id = $3 RETURNING id`,
+        [portfolioId, targetUserId, organizationId]
+      );
+      if (updated.rows.length === 0) return { notFound: 'user' as const };
+      return { ok: true as const };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: `${result.notFound === 'user' ? 'User' : 'Portfolio'} not found` });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to set default portfolio:', err);
+    res.status(500).json({ error: 'Failed to set default portfolio' });
   }
 });
 

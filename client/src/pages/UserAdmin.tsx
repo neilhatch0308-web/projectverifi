@@ -2,11 +2,17 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../lib/apiClient';
 
 interface Role { id: string; name: string; description: string | null; }
-interface AdminUser { id: string; display_name: string; email: string; is_active: boolean; role_ids: string[]; }
+interface Portfolio { id: string; name: string; }
+interface AdminUser {
+  id: string; display_name: string; email: string; is_active: boolean; role_ids: string[];
+  default_portfolio_id: string | null; default_portfolio_name: string | null;
+}
 
 export function UserAdmin() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [savingDefaultFor, setSavingDefaultFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
@@ -32,11 +38,12 @@ export function UserAdmin() {
 
   function load() {
     setLoading(true);
-    Promise.all([apiFetch('/api/users/admin'), apiFetch('/api/roles'), apiFetch('/api/me')])
-      .then(([u, r, me]: [AdminUser[], Role[], { userId: string }]) => {
+    Promise.all([apiFetch('/api/users/admin'), apiFetch('/api/roles'), apiFetch('/api/me'), apiFetch('/api/portfolios')])
+      .then(([u, r, me, p]: [AdminUser[], Role[], { userId: string }, Portfolio[]]) => {
         setUsers(u);
         setRoles(r);
         setCurrentUserId(me.userId);
+        setPortfolios(p);
         const initial: Record<string, Set<string>> = {};
         u.forEach((user) => { initial[user.id] = new Set(user.role_ids); });
         setPending(initial);
@@ -45,6 +52,27 @@ export function UserAdmin() {
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
+
+  async function setDefaultPortfolio(userId: string, portfolioId: string) {
+    setSavingDefaultFor(userId);
+    try {
+      await apiFetch(`/api/users/${userId}/default-portfolio`, {
+        method: 'PATCH',
+        body: JSON.stringify({ portfolioId: portfolioId || null }),
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId
+            ? { ...u, default_portfolio_id: portfolioId || null, default_portfolio_name: portfolios.find((p) => p.id === portfolioId)?.name ?? null }
+            : u
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not set default portfolio.');
+    } finally {
+      setSavingDefaultFor(null);
+    }
+  }
 
   function toggle(userId: string, roleId: string) {
     setPending((prev) => {
@@ -267,6 +295,20 @@ export function UserAdmin() {
                 {statusChangingId === user.id ? '...' : user.is_active ? 'Suspend' : 'Reactivate'}
               </button>
             </div>
+          </div>
+
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12, color: 'var(--muted)' }}>Default portfolio (Annual Planning):</label>
+            <select
+              value={user.default_portfolio_id ?? ''}
+              onChange={(e) => setDefaultPortfolio(user.id, e.target.value)}
+              disabled={savingDefaultFor === user.id}
+              style={{ fontSize: 12.5, padding: '4px 8px', border: '1px solid var(--hairline)', borderRadius: 7 }}
+            >
+              <option value="">All portfolios (default)</option>
+              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {savingDefaultFor === user.id && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Saving...</span>}
           </div>
 
           {roles.length === 0 ? (

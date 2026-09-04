@@ -163,7 +163,7 @@ router.patch(
 );
 
 // ---------- Horizon board read ----------
-router.get('/demands/horizon', requireAuth, async (req, res) => {
+router.get('/demands/horizon', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId } = req.user!;
 
   try {
