@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
+import { useDraft } from '../lib/useDraft';
 
 interface Criterion {
   id: string; name: string; dimension: string; unit: string | null;
@@ -78,6 +79,25 @@ export function DemandDetail() {
   const [costTier, setCostTier] = useState('');
   const [triageNotes, setTriageNotes] = useState('');
   const [assignedAssessorId, setAssignedAssessorId] = useState('');
+
+  const {
+    loadedDraft: triageDraft, saving: savingTriageDraft, savedAt: triageDraftSavedAt,
+    saveError: triageDraftError, saveDraft: saveTriageDraft, discardDraft: discardTriageDraft,
+  } = useDraft<Record<string, any>>('triage', id ?? null);
+
+  useEffect(() => {
+    if (!triageDraft) return;
+    const d = triageDraft.data ?? {};
+    if (d.complexityTier !== undefined) setComplexityTier(d.complexityTier);
+    if (d.costTier !== undefined) setCostTier(d.costTier);
+    if (d.triageNotes !== undefined) setTriageNotes(d.triageNotes);
+    if (d.assignedAssessorId !== undefined) setAssignedAssessorId(d.assignedAssessorId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triageDraft]);
+
+  function handleSaveTriageDraft() {
+    saveTriageDraft({ complexityTier, costTier, triageNotes, assignedAssessorId });
+  }
   const [triageError, setTriageError] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
 
@@ -170,6 +190,7 @@ export function DemandDetail() {
           assignedAssessorId: assignedAssessorId || undefined,
         }),
       });
+      discardTriageDraft();
       load();
     } catch (err) {
       setTriageError(err instanceof Error ? err.message : 'Failed to record triage decision');
@@ -576,6 +597,11 @@ export function DemandDetail() {
       {demand.status === 'raised' && has('demand.triage') && (
         <div className="goal-card">
           <div className="goal-card__name" style={{ marginBottom: 10 }}>Triage assessment</div>
+          {triageDraft && (
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+              Resuming a draft{triageDraft.updated_by_name ? ` last saved by ${triageDraft.updated_by_name}` : ''}, {new Date(triageDraft.updated_at).toLocaleString()}.
+            </p>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="login-field" style={{ marginBottom: 0 }}>
               <label>Complexity</label>
@@ -624,8 +650,17 @@ export function DemandDetail() {
             <button onClick={() => submitTriageDecision()} disabled={updating} className="btn btn--project">
               Accept
             </button>
+            <button type="button" onClick={handleSaveTriageDraft} disabled={savingTriageDraft} className="btn btn--outline">
+              {savingTriageDraft ? 'Saving...' : 'Save draft'}
+            </button>
+            {triageDraftSavedAt && !savingTriageDraft && (
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', alignSelf: 'center' }}>
+                Draft saved {triageDraftSavedAt.toLocaleTimeString()}
+              </span>
+            )}
             {stopButton}
           </div>
+          {triageDraftError && <p className="login-error" style={{ marginTop: 8 }}>{triageDraftError}</p>}
           {stopForm}
         </div>
       )}

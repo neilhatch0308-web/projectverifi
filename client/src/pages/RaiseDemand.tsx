@@ -71,6 +71,86 @@ export function RaiseDemand() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [otherDrafts, setOtherDrafts] = useState<{ id: string; data: any; updated_at: string }[]>([]);
+
+  function refreshDraftList() {
+    apiFetch('/api/drafts?stage=raise')
+      .then((drafts: { id: string; data: any; updated_at: string }[]) => setOtherDrafts(drafts))
+      .catch(() => {});
+  }
+  useEffect(refreshDraftList, []);
+
+  function currentFormSnapshot() {
+    return {
+      title, description, outcomeStatement, portfolioId, deliveringSubPortfolioId, sponsorUserId,
+      needByDate, changeType, claimedCost, claimedBenefit, dateDriverType, dateDriverDetail,
+      strategicGoalId, alignmentNotes, confidential, targetStartYear, targetStartQuarter,
+      selectedDimensions: Array.from(selectedDimensions), criteria, scores,
+    };
+  }
+
+  function resumeDraft(draft: { id: string; data: any }) {
+    const d = draft.data ?? {};
+    setTitle(d.title ?? '');
+    setDescription(d.description ?? '');
+    setOutcomeStatement(d.outcomeStatement ?? '');
+    setPortfolioId(d.portfolioId ?? '');
+    setDeliveringSubPortfolioId(d.deliveringSubPortfolioId ?? '');
+    setSponsorUserId(d.sponsorUserId ?? '');
+    setNeedByDate(d.needByDate ?? '');
+    setChangeType(d.changeType ?? '');
+    setClaimedCost(d.claimedCost ?? '');
+    setClaimedBenefit(d.claimedBenefit ?? '');
+    setDateDriverType(d.dateDriverType ?? 'none');
+    setDateDriverDetail(d.dateDriverDetail ?? '');
+    setStrategicGoalId(d.strategicGoalId ?? '');
+    setAlignmentNotes(d.alignmentNotes ?? '');
+    setConfidential(d.confidential ?? false);
+    setTargetStartYear(d.targetStartYear ?? '');
+    setTargetStartQuarter(d.targetStartQuarter ?? '');
+    setSelectedDimensions(new Set(d.selectedDimensions ?? ['adoption']));
+    setCriteria(d.criteria ?? { adoption: { dimension: 'adoption', measure: '', baselineValue: '', targetValue: '', unit: '' } });
+    setScores(d.scores ?? {});
+    setDraftId(draft.id);
+    setDraftError(null);
+  }
+
+  async function handleSaveDraft() {
+    setSavingDraft(true);
+    setDraftError(null);
+    try {
+      if (draftId) {
+        await apiFetch(`/api/drafts/${draftId}`, { method: 'PATCH', body: JSON.stringify({ data: currentFormSnapshot() }) });
+      } else {
+        const created = await apiFetch('/api/drafts', {
+          method: 'POST',
+          body: JSON.stringify({ stage: 'raise', data: currentFormSnapshot() }),
+        });
+        setDraftId(created.id);
+      }
+      setDraftSavedAt(new Date());
+      refreshDraftList();
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : 'Could not save draft.');
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function discardOtherDraft(id: string) {
+    try {
+      await apiFetch(`/api/drafts/${id}`, { method: 'DELETE' });
+      setOtherDrafts((prev) => prev.filter((d) => d.id !== id));
+      if (draftId === id) setDraftId(null);
+    } catch {
+      // Non-critical -- leave it in the list if the delete failed, they can retry.
+    }
+  }
+
   useEffect(() => {
     apiFetch('/api/portfolios').then(setPortfolios).catch((err) => setError(err.message));
     apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch((err) => setError(err.message));
@@ -171,6 +251,7 @@ export function RaiseDemand() {
           targetStartQuarter: targetStartQuarter ? Number(targetStartQuarter) : undefined,
         }),
       });
+      if (draftId) apiFetch(`/api/drafts/${draftId}`, { method: 'DELETE' }).catch(() => {});
       navigate(`/demand/${demand.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to raise demand');
@@ -188,6 +269,33 @@ export function RaiseDemand() {
       <p className="page-subtitle">
         Everything triage needs to scale this before accepting or rejecting it.
       </p>
+
+      {otherDrafts.filter((d) => d.id !== draftId).length > 0 && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem', background: 'var(--cloud)' }}>
+          <div className="goal-card__meta" style={{ marginBottom: 6 }}>
+            You have {otherDrafts.filter((d) => d.id !== draftId).length} saved draft
+            {otherDrafts.filter((d) => d.id !== draftId).length > 1 ? 's' : ''}
+          </div>
+          {otherDrafts.filter((d) => d.id !== draftId).map((d) => (
+            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
+              <div style={{ fontSize: 13 }}>
+                {d.data?.title || '(untitled draft)'}
+                <span style={{ color: 'var(--muted)', fontSize: 11.5, marginLeft: 8 }}>
+                  saved {new Date(d.updated_at).toLocaleString()}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" className="btn btn--outline" style={{ fontSize: 11.5, padding: '4px 10px' }} onClick={() => resumeDraft(d)}>
+                  Resume
+                </button>
+                <button type="button" className="btn btn--outline" style={{ fontSize: 11.5, padding: '4px 10px' }} onClick={() => discardOtherDraft(d.id)}>
+                  Discard
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         {/* ---------- Who ---------- */}
@@ -475,10 +583,19 @@ export function RaiseDemand() {
         ))}
 
         {error && <p className="login-error" style={{ marginTop: 12 }}>{error}</p>}
+        {draftError && <p className="login-error" style={{ marginTop: 12 }}>{draftError}</p>}
 
-        <button type="submit" disabled={submitting} className="btn btn--project" style={{ marginTop: 8 }}>
-          {submitting ? 'Raising...' : 'Raise demand'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          <button type="submit" disabled={submitting} className="btn btn--project">
+            {submitting ? 'Raising...' : 'Raise demand'}
+          </button>
+          <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="btn btn--outline">
+            {savingDraft ? 'Saving...' : 'Save draft'}
+          </button>
+          {draftSavedAt && !savingDraft && (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Draft saved {draftSavedAt.toLocaleTimeString()}</span>
+          )}
+        </div>
       </form>
     </div>
   );

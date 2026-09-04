@@ -13,6 +13,7 @@ import portfolioBudgetRouter from './routes/portfolioBudget';
 import annualPlanRouter from './routes/annualPlan';
 import governanceRouter from './routes/governance';
 import targetYearRouter from './routes/target-year-routes';
+import draftsRouter from './routes/drafts';
 import passwordResetRouter from './routes/passwordReset';
 
 dotenv.config();
@@ -55,6 +56,7 @@ app.use('/api', businessCaseRouter);
 app.use('/api', portfolioBudgetRouter);
 app.use('/api', annualPlanRouter);
 app.use('/api', governanceRouter);
+app.use('/api', draftsRouter);
 app.use(passwordResetRouter); // routes already declare their own /api/auth/... prefix internally
 
 

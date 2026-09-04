@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
+import { useDraft } from '../lib/useDraft';
 
 interface DemandSummary {
   id: string;
@@ -48,6 +49,27 @@ export function AssessDemand() {
 
   const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
   const horizonYears = Array.from({ length: 5 }, (_, i) => currentFY + i);
+
+  const { loadedDraft, saving: savingDraft, savedAt: draftSavedAt, saveError: draftError, saveDraft, discardDraft } =
+    useDraft<Record<string, any>>('assess', id ?? null);
+
+  useEffect(() => {
+    if (!loadedDraft) return;
+    const d = loadedDraft.data ?? {};
+    if (d.assessedCost !== undefined) setAssessedCost(d.assessedCost);
+    if (d.assessedBenefit !== undefined) setAssessedBenefit(d.assessedBenefit);
+    if (d.costConfidence !== undefined) setCostConfidence(d.costConfidence);
+    if (d.benefitConfidence !== undefined) setBenefitConfidence(d.benefitConfidence);
+    if (d.narrative !== undefined) setNarrative(d.narrative);
+    if (d.capacity !== undefined) setCapacity(d.capacity);
+    if (d.capacityDetail !== undefined) setCapacityDetail(d.capacityDetail);
+    if (d.recommendation !== undefined) setRecommendation(d.recommendation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedDraft]);
+
+  function handleSaveDraft() {
+    saveDraft({ assessedCost, assessedBenefit, costConfidence, benefitConfidence, narrative, capacity, capacityDetail, recommendation });
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -98,7 +120,10 @@ export function AssessDemand() {
         }
       }
 
-      if (!targetYearFailed) navigate(`/demand/${id}`);
+      if (!targetYearFailed) {
+        discardDraft();
+        navigate(`/demand/${id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to record assessment');
     } finally {
@@ -169,6 +194,12 @@ export function AssessDemand() {
             claim is as useful a record as a corrected one.
           </p>
         </div>
+
+        {loadedDraft && (
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+            Resuming a draft{loadedDraft.updated_by_name ? ` last saved by ${loadedDraft.updated_by_name}` : ''}, {new Date(loadedDraft.updated_at).toLocaleString()}.
+          </p>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div className="login-field">
@@ -282,10 +313,19 @@ export function AssessDemand() {
         </div>
 
         {error && <p className="login-error">{error}</p>}
+        {draftError && <p className="login-error">{draftError}</p>}
 
-        <button type="submit" disabled={submitting} className="btn btn--project">
-          {submitting ? 'Recording...' : 'Record assessment'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button type="submit" disabled={submitting} className="btn btn--project">
+            {submitting ? 'Recording...' : 'Record assessment'}
+          </button>
+          <button type="button" onClick={handleSaveDraft} disabled={savingDraft} className="btn btn--outline">
+            {savingDraft ? 'Saving...' : 'Save draft'}
+          </button>
+          {draftSavedAt && !savingDraft && (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Draft saved {draftSavedAt.toLocaleTimeString()}</span>
+          )}
+        </div>
       </form>
     </div>
   );

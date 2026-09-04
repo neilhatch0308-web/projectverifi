@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
+import { useDraft } from '../lib/useDraft';
 
 interface User {
   id: string;
@@ -25,6 +26,14 @@ export function AcceptDemand() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const { loadedDraft, saving: savingDraft, savedAt: draftSavedAt, saveError: draftError, saveDraft, discardDraft } =
+    useDraft<Record<string, string>>('accept', id ?? null);
+
+  useEffect(() => {
+    if (loadedDraft?.data) setSeatValues(loadedDraft.data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedDraft]);
+
   useEffect(() => {
     apiFetch('/api/users')
       .then(setUsers)
@@ -46,6 +55,7 @@ export function AcceptDemand() {
         method: 'POST',
         body: JSON.stringify(seatValues),
       });
+      discardDraft();
       navigate(`/demand/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to accept demand');
@@ -67,6 +77,11 @@ export function AcceptDemand() {
       </p>
 
       <form onSubmit={handleSubmit}>
+        {loadedDraft && (
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+            Resuming a draft{loadedDraft.updated_by_name ? ` last saved by ${loadedDraft.updated_by_name}` : ''}, {new Date(loadedDraft.updated_at).toLocaleString()}.
+          </p>
+        )}
         {SEATS.map((seat) => (
           <div key={seat.key} className="login-field">
             <label>{seat.label}</label>
@@ -86,10 +101,19 @@ export function AcceptDemand() {
         ))}
 
         {error && <p className="login-error">{error}</p>}
+        {draftError && <p className="login-error">{draftError}</p>}
 
-        <button type="submit" disabled={submitting} className="btn btn--project">
-          {submitting ? 'Accepting...' : 'Accept and lock criteria'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button type="submit" disabled={submitting} className="btn btn--project">
+            {submitting ? 'Accepting...' : 'Accept and lock criteria'}
+          </button>
+          <button type="button" onClick={() => saveDraft(seatValues)} disabled={savingDraft} className="btn btn--outline">
+            {savingDraft ? 'Saving...' : 'Save draft'}
+          </button>
+          {draftSavedAt && !savingDraft && (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Draft saved {draftSavedAt.toLocaleTimeString()}</span>
+          )}
+        </div>
       </form>
     </div>
   );
