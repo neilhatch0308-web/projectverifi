@@ -55,6 +55,7 @@ export function RaiseDemand() {
   const [strategicGoalId, setStrategicGoalId] = useState('');
   const [alignmentNotes, setAlignmentNotes] = useState('');
   const [confidential, setConfidential] = useState(false);
+  const [confidentialViewerIds, setConfidentialViewerIds] = useState<string[]>([]);
   const [targetStartYear, setTargetStartYear] = useState('');
   const [targetStartQuarter, setTargetStartQuarter] = useState('');
 
@@ -88,7 +89,7 @@ export function RaiseDemand() {
     return {
       title, description, outcomeStatement, portfolioId, deliveringSubPortfolioId, sponsorUserId,
       needByDate, changeType, claimedCost, claimedBenefit, dateDriverType, dateDriverDetail,
-      strategicGoalId, alignmentNotes, confidential, targetStartYear, targetStartQuarter,
+      strategicGoalId, alignmentNotes, confidential, confidentialViewerIds, targetStartYear, targetStartQuarter,
       selectedDimensions: Array.from(selectedDimensions), criteria, scores,
     };
   }
@@ -110,6 +111,7 @@ export function RaiseDemand() {
     setStrategicGoalId(d.strategicGoalId ?? '');
     setAlignmentNotes(d.alignmentNotes ?? '');
     setConfidential(d.confidential ?? false);
+    setConfidentialViewerIds(d.confidentialViewerIds ?? []);
     setTargetStartYear(d.targetStartYear ?? '');
     setTargetStartQuarter(d.targetStartQuarter ?? '');
     setSelectedDimensions(new Set(d.selectedDimensions ?? ['adoption']));
@@ -243,6 +245,7 @@ export function RaiseDemand() {
           claimedCost: Number(claimedCost),
           claimedBenefit: Number(claimedBenefit),
           confidential,
+          confidentialViewerIds: confidential && confidentialViewerIds.length > 0 ? confidentialViewerIds : undefined,
           criteria: activeCriteria,
           scores: scorePayload,
           strategicGoalId: strategicGoalId || undefined,
@@ -338,13 +341,32 @@ export function RaiseDemand() {
             placeholder="e.g. Regional forecast data remains manual and error-prone" required />
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, marginBottom: '1.25rem' }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, marginBottom: confidential ? 10 : '1.25rem' }}>
           <input type="checkbox" checked={confidential} onChange={(e) => setConfidential(e.target.checked)} style={{ marginTop: 3 }} />
           <span>
             <strong>Confidential</strong>
-            <span style={{ color: 'var(--muted)' }}> - only visible to you and users whose role grants access to confidential demand.</span>
+            <span style={{ color: 'var(--muted)' }}> - only visible to you and named viewers. Nobody else, including admins, can see it unless you or a named viewer adds them.</span>
           </span>
         </label>
+
+        {confidential && (
+          <div className="login-field" style={{ marginBottom: '1.25rem' }}>
+            <label>Name initial viewers (optional)</label>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 6px' }}>
+              You'll always be able to see it. Add anyone else who needs to from the start - you can add more later from the demand page.
+            </p>
+            <select
+              multiple
+              value={confidentialViewerIds}
+              onChange={(e) => setConfidentialViewerIds(Array.from(e.target.selectedOptions, (o) => o.value))}
+              style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 13, minHeight: 90 }}
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.display_name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="login-field">
           <label>Problem statement</label>

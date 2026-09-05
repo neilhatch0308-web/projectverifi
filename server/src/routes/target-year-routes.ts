@@ -164,7 +164,7 @@ router.patch(
 
 // ---------- Horizon board read ----------
 router.get('/demands/horizon', requireAuth, requirePermission('planning.edit'), async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
 
   try {
     const demands = await withTenantContext(organizationId, async (client) => {
@@ -182,15 +182,100 @@ router.get('/demands/horizon', requireAuth, requirePermission('planning.edit'), 
            JOIN portfolio p ON p.id = d.portfolio_id
           WHERE d.target_start_year IS NOT NULL
             AND d.status != 'stopped'
-          ORDER BY p.name, d.target_start_year, d.target_start_quarter NULLS FIRST`
+            AND (d.confidential = false OR can_view_confidential_demand(d.id, $1))
+          ORDER BY p.name, d.target_start_year, d.target_start_quarter NULLS FIRST`,
+        [userId]
       );
       return rows;
     });
 
-    return res.json({ demands });
+    const dependencies = await withTenantContext(organizationId, async (client) => {
+      const visibleIds = demands.map((d) => d.id);
+      if (visibleIds.length === 0) return [];
+      const { rows } = await client.query(
+        `SELECT demand_id, depends_on_id
+           FROM demand_dependency
+          WHERE demand_id = ANY($1::uuid[]) AND depends_on_id = ANY($1::uuid[])`,
+        [visibleIds]
+      );
+      return rows;
+    });
+
+    return res.json({ demands, dependencies });
   } catch (err) {
     console.error('Failed to fetch horizon:', err);
     return res.status(500).json({ error: 'Failed to fetch horizon' });
+  }
+});
+
+const addDependencySchema = z.object({ dependsOnId: looseUuid() });
+
+// ---------- Add a dependency link (planning.edit, matching page access) ----------
+router.post('/demands/:id/dependencies', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+  const demandId = looseUuid().parse(req.params.id);
+  const parsed = addDependencySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { dependsOnId } = parsed.data;
+
+  if (demandId === dependsOnId) {
+    return res.status(400).json({ error: 'A demand cannot depend on itself.' });
+  }
+
+  const { organizationId, userId } = req.user!;
+
+  try {
+    const outcome = await withTenantContext(organizationId, async (client) => {
+      // Both ends must actually exist and be visible to the requester -
+      // same confidentiality rule as everywhere else, so a link can't be
+      // used to infer the existence of a confidential demand you can't see.
+      const check = await client.query(
+        `SELECT
+           (SELECT EXISTS (SELECT 1 FROM demand d WHERE d.id = $1
+             AND (d.confidential = false OR can_view_confidential_demand(d.id, $3)))) AS demand_visible,
+           (SELECT EXISTS (SELECT 1 FROM demand d WHERE d.id = $2
+             AND (d.confidential = false OR can_view_confidential_demand(d.id, $3)))) AS depends_on_visible,
+           EXISTS (SELECT 1 FROM demand_dependency WHERE demand_id = $2 AND depends_on_id = $1) AS reverse_exists`,
+        [demandId, dependsOnId, userId]
+      );
+      const row = check.rows[0];
+      if (!row.demand_visible || !row.depends_on_visible) return { status: 404 as const, error: 'Demand not found' };
+      if (row.reverse_exists) {
+        return { status: 409 as const, error: 'The reverse link already exists - these two demands cannot depend on each other both ways.' };
+      }
+
+      await client.query(
+        `INSERT INTO demand_dependency (id, organization_id, demand_id, depends_on_id, created_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4)
+         ON CONFLICT (demand_id, depends_on_id) DO NOTHING`,
+        [organizationId, demandId, dependsOnId, userId]
+      );
+      return { status: 201 as const };
+    });
+
+    return res.status(outcome.status).json(outcome.status === 201 ? { ok: true } : { error: outcome.error });
+  } catch (err) {
+    console.error('Failed to add dependency:', err);
+    return res.status(500).json({ error: 'Failed to add dependency' });
+  }
+});
+
+// ---------- Remove a dependency link ----------
+router.delete('/demands/:id/dependencies/:dependsOnId', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+  const demandId = looseUuid().parse(req.params.id);
+  const dependsOnId = looseUuid().parse(req.params.dependsOnId);
+  const { organizationId } = req.user!;
+
+  try {
+    await withTenantContext(organizationId, async (client) => {
+      await client.query(
+        `DELETE FROM demand_dependency WHERE demand_id = $1 AND depends_on_id = $2`,
+        [demandId, dependsOnId]
+      );
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to remove dependency:', err);
+    return res.status(500).json({ error: 'Failed to remove dependency' });
   }
 });
 

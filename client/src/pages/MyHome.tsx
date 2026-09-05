@@ -11,6 +11,7 @@ interface Demand {
   raised_by: string;
   portfolio_name: string;
   business_case_id: string | null;
+  business_case_decision: string | null;
 }
 
 interface ActionItem {
@@ -41,8 +42,10 @@ function DemandRow({ d }: { d: Demand }) {
           <div style={{ fontWeight: 600 }}>{d.title}</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{d.portfolio_name}</div>
         </div>
-        <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px' }}>
-          {STATUS_LABELS[d.status] ?? d.status}
+        <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px', textTransform: 'capitalize' }}>
+          {d.status === 'promoted'
+            ? (d.business_case_decision && d.business_case_decision !== 'pending' ? d.business_case_decision : 'Business Case')
+            : (STATUS_LABELS[d.status] ?? d.status)}
         </span>
       </div>
     </Link>

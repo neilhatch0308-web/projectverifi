@@ -7,6 +7,29 @@ import { looseUuid } from '../lib/validation';
 
 const router = Router();
 
+// ---------- Confidentiality guard, shared by every endpoint below ----------
+// A business case inherits its demand's confidentiality. Someone who
+// holds business_case.edit/view/decide generally but isn't on the
+// linked demand's viewer list must not be able to read OR write it -
+// otherwise a coarse business-case permission would be a silent
+// bypass of the restricted viewer list this was built for. Returns
+// null (caller should 404) if the business case doesn't exist or the
+// requester can't see the demand it belongs to.
+async function assertCanAccessBusinessCase(client: any, businessCaseId: string | string[], userId: string): Promise<string | null> {
+  const idParam = Array.isArray(businessCaseId) ? businessCaseId[0] : businessCaseId;
+  const result = await client.query(
+    `SELECT bc.demand_id, d.confidential,
+            (d.confidential = false OR can_view_confidential_demand(d.id, $2)) AS can_view
+       FROM business_case bc
+       JOIN demand d ON d.id = bc.demand_id
+      WHERE bc.id = $1`,
+    [idParam, userId]
+  );
+  const row = result.rows[0];
+  if (!row || !row.can_view) return null;
+  return row.demand_id;
+}
+
 // ---------- Governance requirements (cumulative, cost-tiered) ----------
 // Every tier whose min_threshold <= spend contributes its added_approvers
 // and added_documents to the effective set - see 31_governance_tiers_and_
@@ -41,11 +64,14 @@ async function computeGovernanceRequirements(client: any, organizationId: string
 // RACI is read via the linked demand (demand_raci) - not a separate
 // business_case_raci naming step. See 21_business_case.sql.
 router.get('/business-cases/:id', requireAuth, requirePermission('business_case.view'), async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
+      const canView = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canView) return null; // 404, not 403 - matches the demand's own confidentiality behavior
+
       const bcResult = await client.query(
         `SELECT bc.id, bc.title, bc.requested_spend, bc.decision, bc.decision_date,
                 bc.demand_id, bc.executive_summary, bc.problem_statement,
@@ -85,7 +111,8 @@ router.get('/business-cases/:id', requireAuth, requirePermission('business_case.
       );
 
       const benefitsResult = await client.query(
-        `SELECT b.id, b.title, b.benefit_type, b.claimed_value, b.status, owner.display_name AS owner_name
+        `SELECT b.id, b.title, b.benefit_type, b.claimed_value, b.status,
+                b.recurrence, b.duration_years, owner.display_name AS owner_name
          FROM benefit b
          LEFT JOIN app_user owner ON owner.id = b.owner_user_id
          WHERE b.business_case_id = $1
@@ -167,12 +194,15 @@ router.patch('/business-cases/:id/narrative', requireAuth, requirePermission('bu
   const parsed = narrativeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
   const { executiveSummary, problemStatement } = parsed.data;
 
   try {
     const updated = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
         `UPDATE business_case SET
            executive_summary = COALESCE($1, executive_summary),
@@ -199,11 +229,14 @@ router.patch('/business-cases/:id/requested-spend', requireAuth, requirePermissi
   const parsed = requestedSpendSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
     const updated = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
         `UPDATE business_case SET requested_spend = $1 WHERE id = $2 RETURNING id, requested_spend`,
         [parsed.data.requestedSpend, id]
@@ -271,31 +304,93 @@ const addBenefitSchema = z.object({
   benefitType: z.string().min(1),
   claimedValue: z.number().optional(),
   ownerUserId: looseUuid(),
-});
+  recurrence: z.enum(['one_time', 'annual', 'multi_year_lump_sum']),
+  durationYears: z.number().int().positive().optional(),
+}).refine(
+  (data) => (data.recurrence === 'one_time') === (data.durationYears === undefined),
+  { message: 'duration_years is required for annual/multi_year_lump_sum and must be omitted for one_time.' }
+);
 
 router.post('/business-cases/:id/benefits', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
   const parsed = addBenefitSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { title, benefitType, claimedValue, ownerUserId } = parsed.data;
+  const { title, benefitType, claimedValue, ownerUserId, recurrence, durationYears } = parsed.data;
 
   try {
     const benefit = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
-        `INSERT INTO benefit (id, business_case_id, title, benefit_type, claimed_value, owner_user_id, status)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'forecast')
-         RETURNING id, title, benefit_type, claimed_value, status`,
-        [id, title, benefitType, claimedValue ?? null, ownerUserId]
+        `INSERT INTO benefit (id, business_case_id, title, benefit_type, claimed_value, owner_user_id, status, recurrence, duration_years)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'forecast', $6, $7)
+         RETURNING id, title, benefit_type, claimed_value, status, recurrence, duration_years`,
+        [id, title, benefitType, claimedValue ?? null, ownerUserId, recurrence, durationYears ?? null]
       );
       return result.rows[0];
     });
 
+    if (!benefit) return res.status(404).json({ error: 'Business case not found' });
     res.status(201).json(benefit);
   } catch (err) {
     console.error('Failed to add benefit:', err);
     res.status(500).json({ error: 'Failed to add benefit' });
+  }
+});
+
+// ---------- Edit an existing benefit ----------
+// Didn't exist before this migration -- benefits could only ever be
+// created, never corrected or (critically) reclassified. Needed so
+// legacy rows left NULL by migration 49 can actually be reviewed, not
+// just flagged forever with no way to act on the flag.
+const editBenefitSchema = z.object({
+  title: z.string().min(1).optional(),
+  claimedValue: z.number().optional(),
+  recurrence: z.enum(['one_time', 'annual', 'multi_year_lump_sum']).optional(),
+  durationYears: z.number().int().positive().nullable().optional(),
+}).refine(
+  (data) => {
+    if (!data.recurrence) return true; // not changing recurrence -- duration_years handled independently
+    return (data.recurrence === 'one_time') === (data.durationYears == null);
+  },
+  { message: 'duration_years is required for annual/multi_year_lump_sum and must be omitted for one_time.' }
+);
+
+router.patch('/business-cases/:id/benefits/:benefitId', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
+  const { id, benefitId } = req.params;
+  const parsed = editBenefitSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { title, claimedValue, recurrence, durationYears } = parsed.data;
+
+  try {
+    const benefit = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
+      const result = await client.query(
+        `UPDATE benefit SET
+           title = COALESCE($1, title),
+           claimed_value = COALESCE($2, claimed_value),
+           recurrence = COALESCE($3, recurrence),
+           duration_years = CASE WHEN $3::text IS NOT NULL THEN $4 ELSE duration_years END,
+           updated_at = now()
+         WHERE id = $5 AND business_case_id = $6
+         RETURNING id, title, benefit_type, claimed_value, status, recurrence, duration_years`,
+        [title ?? null, claimedValue ?? null, recurrence ?? null, durationYears ?? null, benefitId, id]
+      );
+      return result.rows[0] ?? null;
+    });
+
+    if (!benefit) return res.status(404).json({ error: 'Benefit not found' });
+    res.json(benefit);
+  } catch (err) {
+    console.error('Failed to update benefit:', err);
+    res.status(500).json({ error: 'Failed to update benefit' });
   }
 });
 
@@ -319,6 +414,9 @@ router.post('/business-cases/:id/risks', requireAuth, requirePermission('busines
 
   try {
     const risk = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
         `INSERT INTO business_case_risk
            (id, business_case_id, description, category, likelihood, impact, mitigation, owner_user_id, raised_by)
@@ -329,6 +427,7 @@ router.post('/business-cases/:id/risks', requireAuth, requirePermission('busines
       return result.rows[0];
     });
 
+    if (!risk) return res.status(404).json({ error: 'Business case not found' });
     res.status(201).json(risk);
   } catch (err) {
     console.error('Failed to add risk:', err);
@@ -346,12 +445,15 @@ router.patch('/business-cases/:id/risks/:riskId', requireAuth, requirePermission
   const parsed = updateRiskSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
-  const { riskId } = req.params;
+  const { organizationId, userId } = req.user!;
+  const { id, riskId } = req.params;
   const { status, mitigation } = parsed.data;
 
   try {
     const updated = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
         `UPDATE business_case_risk SET
            status = COALESCE($1, status),
@@ -476,11 +578,14 @@ router.post('/business-cases/:id/decision', requireAuth, requirePermission('busi
   const parsed = decisionSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
     const updated = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const result = await client.query(
         `UPDATE business_case SET decision = $1, decision_date = CURRENT_DATE
          WHERE id = $2 RETURNING id, decision, decision_date`,
@@ -504,11 +609,14 @@ router.post('/business-cases/:id/decision', requireAuth, requirePermission('busi
 // not a full data dump - detailed financial breakdowns and the full
 // audit trail stay in the app.
 router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('business_case.view'), async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
     const data = await withTenantContext(organizationId, async (client) => {
+      const canView = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canView) return null;
+
       const bcResult = await client.query(
         `SELECT bc.id, bc.title, bc.requested_spend, bc.decision, bc.decision_date,
                 bc.demand_id, bc.executive_summary, bc.problem_statement,
@@ -557,7 +665,7 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
       );
 
       const benefitsResult = await client.query(
-        `SELECT b.title, b.benefit_type, b.claimed_value, b.status, owner.display_name AS owner_name
+        `SELECT b.title, b.benefit_type, b.claimed_value, b.status, b.recurrence, b.duration_years, owner.display_name AS owner_name
          FROM benefit b
          LEFT JOIN app_user owner ON owner.id = b.owner_user_id
          WHERE b.business_case_id = $1

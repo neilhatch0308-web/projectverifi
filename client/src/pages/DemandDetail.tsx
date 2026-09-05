@@ -100,6 +100,45 @@ export function DemandDetail() {
   }
   const [triageError, setTriageError] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [confidentialViewers, setConfidentialViewers] = useState<{
+    named: { user_id: string; display_name: string; added_at: string; added_by_name: string | null }[];
+    raci: Record<string, string | null> | null;
+  } | null>(null);
+  const [addingViewerId, setAddingViewerId] = useState('');
+  const [viewerError, setViewerError] = useState<string | null>(null);
+
+  function loadConfidentialViewers() {
+    if (!id) return;
+    apiFetch(`/api/demands/${id}/confidential-viewers`)
+      .then((res) => setConfidentialViewers({ named: res.named, raci: res.raci }))
+      .catch(() => {}); // if this 404s (no access), the page itself already 404'd for the same reason
+  }
+
+  async function addConfidentialViewer() {
+    if (!id || !addingViewerId) return;
+    setViewerError(null);
+    try {
+      await apiFetch(`/api/demands/${id}/confidential-viewers`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: addingViewerId }),
+      });
+      setAddingViewerId('');
+      loadConfidentialViewers();
+    } catch (err) {
+      setViewerError(err instanceof Error ? err.message : 'Could not add viewer.');
+    }
+  }
+
+  async function removeConfidentialViewer(targetUserId: string) {
+    if (!id) return;
+    setViewerError(null);
+    try {
+      await apiFetch(`/api/demands/${id}/confidential-viewers/${targetUserId}`, { method: 'DELETE' });
+      loadConfidentialViewers();
+    } catch (err) {
+      setViewerError(err instanceof Error ? err.message : 'Could not remove viewer.');
+    }
+  }
 
   const [showStop, setShowStop] = useState(false);
   const [stopReason, setStopReason] = useState('');
@@ -143,6 +182,7 @@ export function DemandDetail() {
   useEffect(load, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
   useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
+  useEffect(() => { if (demand?.confidential) loadConfidentialViewers(); }, [demand?.confidential]);
 
   async function assignSubPortfolio(subPortfolioId: string) {
     if (!id) return;
@@ -280,6 +320,73 @@ export function DemandDetail() {
           </span>
         )}
       </h1>
+
+      {demand.confidential && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem', background: 'var(--cloud)' }}>
+          <div className="goal-card__meta" style={{ marginBottom: 6 }}>
+            Confidential &mdash; visible only to those listed below. Anyone here can add or remove others.
+          </div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 10px', fontSize: 13 }}>
+            <li style={{ padding: '3px 0' }}>{demand.raised_by_name} <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>(raiser)</span></li>
+            {demand.assigned_assessor_id && (
+              <li style={{ padding: '3px 0' }}>
+                {users.find((u) => u.id === demand.assigned_assessor_id)?.display_name ?? 'Tagged assessor'}{' '}
+                <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>(tagged assessor)</span>
+              </li>
+            )}
+            {confidentialViewers?.raci && Object.entries({
+              accountable_financial_id: 'RACI: Accountable (financial)',
+              accountable_scope_id: 'RACI: Accountable (scope)',
+              accountable_schedule_id: 'RACI: Accountable (schedule)',
+              sponsor_id: 'RACI: Sponsor',
+              benefit_owner_id: 'RACI: Benefit owner',
+            }).map(([key, label]) => {
+              const uid = confidentialViewers.raci?.[key];
+              if (!uid) return null;
+              return (
+                <li key={key} style={{ padding: '3px 0' }}>
+                  {users.find((u) => u.id === uid)?.display_name ?? label}{' '}
+                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>({label})</span>
+                </li>
+              );
+            })}
+            {confidentialViewers?.named.map((v) => (
+              <li key={v.user_id} style={{ padding: '3px 0', display: 'flex', justifyContent: 'space-between' }}>
+                <span>
+                  {v.display_name}{' '}
+                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>
+                    (named{v.added_by_name ? ` by ${v.added_by_name}` : ''})
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeConfidentialViewer(v.user_id)}
+                  className="btn btn--outline"
+                  style={{ fontSize: 10.5, padding: '2px 8px' }}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select
+              value={addingViewerId}
+              onChange={(e) => setAddingViewerId(e.target.value)}
+              style={{ flex: 1, padding: 6, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5 }}
+            >
+              <option value="">Add a viewer...</option>
+              {users
+                .filter((u) => !confidentialViewers?.named.some((v) => v.user_id === u.id))
+                .map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+            </select>
+            <button type="button" onClick={addConfidentialViewer} disabled={!addingViewerId} className="btn btn--outline" style={{ fontSize: 12.5 }}>
+              Add
+            </button>
+          </div>
+          {viewerError && <p className="login-error" style={{ marginTop: 8 }}>{viewerError}</p>}
+        </div>
+      )}
       <p className="page-subtitle">
         {demand.portfolio_name} (raised)
         {demand.raised_by_name && <> &middot; conceived by {demand.raised_by_name}</>}

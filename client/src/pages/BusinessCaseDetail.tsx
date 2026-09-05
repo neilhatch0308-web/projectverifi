@@ -8,7 +8,11 @@ interface Raci {
   accountable_schedule_name: string; sponsor_name: string; benefit_owner_name: string;
 }
 interface Investment { approved_amount: number | null; actual_spend_to_date: number | null; }
-interface Benefit { id: string; title: string; benefit_type: string; claimed_value: number | null; status: string; owner_name: string | null; }
+interface Benefit {
+  id: string; title: string; benefit_type: string; claimed_value: number | null; status: string;
+  owner_name: string | null; recurrence: 'one_time' | 'annual' | 'multi_year_lump_sum' | null;
+  duration_years: number | null;
+}
 interface StrategicGoal { goal_name: string; goal_year: number; alignment_notes: string | null; }
 interface Estimate {
   claimed_cost: number | null; claimed_benefit: number | null;
@@ -92,7 +96,13 @@ export function BusinessCaseDetail() {
   const [benefitType, setBenefitType] = useState('');
   const [benefitValue, setBenefitValue] = useState('');
   const [benefitOwner, setBenefitOwner] = useState('');
+  const [benefitRecurrence, setBenefitRecurrence] = useState<'one_time' | 'annual' | 'multi_year_lump_sum' | ''>('');
+  const [benefitDuration, setBenefitDuration] = useState('');
   const [addingBenefit, setAddingBenefit] = useState(false);
+  const [classifyingBenefitId, setClassifyingBenefitId] = useState<string | null>(null);
+  const [classifyRecurrence, setClassifyRecurrence] = useState<'one_time' | 'annual' | 'multi_year_lump_sum' | ''>('');
+  const [classifyDuration, setClassifyDuration] = useState('');
+  const [classifyError, setClassifyError] = useState<string | null>(null);
 
   function load() {
     if (!id) return;
@@ -153,7 +163,7 @@ export function BusinessCaseDetail() {
 
   async function handleAddBenefit(e: FormEvent) {
     e.preventDefault();
-    if (!id) return;
+    if (!id || !benefitRecurrence) return;
     setAddingBenefit(true);
     try {
       await apiFetch(`/api/business-cases/${id}/benefits`, {
@@ -163,15 +173,36 @@ export function BusinessCaseDetail() {
           benefitType,
           claimedValue: benefitValue ? Number(benefitValue) : undefined,
           ownerUserId: benefitOwner,
+          recurrence: benefitRecurrence,
+          durationYears: benefitRecurrence !== 'one_time' && benefitDuration ? Number(benefitDuration) : undefined,
         }),
       });
       setBenefitTitle(''); setBenefitType(''); setBenefitValue(''); setBenefitOwner('');
+      setBenefitRecurrence(''); setBenefitDuration('');
       setShowAddBenefit(false);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add benefit');
     } finally {
       setAddingBenefit(false);
+    }
+  }
+
+  async function saveClassification(benefitId: string) {
+    if (!id || !classifyRecurrence) return;
+    setClassifyError(null);
+    try {
+      await apiFetch(`/api/business-cases/${id}/benefits/${benefitId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          recurrence: classifyRecurrence,
+          durationYears: classifyRecurrence !== 'one_time' && classifyDuration ? Number(classifyDuration) : null,
+        }),
+      });
+      setClassifyingBenefitId(null);
+      load();
+    } catch (err) {
+      setClassifyError(err instanceof Error ? err.message : 'Could not save classification.');
     }
   }
 
@@ -284,7 +315,23 @@ export function BusinessCaseDetail() {
   if (!bc) return <p>Not found.</p>;
 
   const inputStyle = { width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13 };
-  const remainingBenefit = bc.benefits.reduce((sum, b) => sum + (b.claimed_value ?? 0), 0) - (bc.investment?.actual_spend_to_date ?? 0);
+  const oneTimeBenefits = bc.benefits.filter((b) => b.recurrence === 'one_time');
+  const annualBenefits = bc.benefits.filter((b) => b.recurrence === 'annual');
+  const lumpSumBenefits = bc.benefits.filter((b) => b.recurrence === 'multi_year_lump_sum');
+  const unclassifiedBenefits = bc.benefits.filter((b) => !b.recurrence);
+
+  const oneTimeTotal = oneTimeBenefits.reduce((sum, b) => sum + Number(b.claimed_value ?? 0), 0);
+  const annualTotal = annualBenefits.reduce((sum, b) => sum + Number(b.claimed_value ?? 0), 0);
+  const lumpSumTotal = lumpSumBenefits.reduce((sum, b) => sum + Number(b.claimed_value ?? 0), 0);
+  const unclassifiedTotal = unclassifiedBenefits.reduce((sum, b) => sum + Number(b.claimed_value ?? 0), 0);
+
+  // Only true totals (one-time + multi-year lump sum) are compared
+  // against cumulative spend -- an annual RATE isn't directly
+  // comparable to a point-in-time spend figure without picking a
+  // horizon to normalize against, which is exactly the kind of silent
+  // assumption this framework avoids making on someone's behalf.
+  const comparableBenefitTotal = oneTimeTotal + lumpSumTotal;
+  const remainingBenefit = comparableBenefitTotal - Number(bc.investment?.actual_spend_to_date ?? 0);
 
   return (
     <div style={{ maxWidth: 660 }}>
@@ -304,7 +351,7 @@ export function BusinessCaseDetail() {
         {bc.submitted_by_name && <> &middot; submitted by {bc.submitted_by_name}</>}
       </p>
 
-      {bc.decision && (
+      {bc.decision && bc.decision !== 'pending' && (
         <div style={{ marginBottom: '1.25rem' }}>
           <span className={`pill ${bc.decision === 'approved' ? 'pill--teal' : 'pill--muted'}`} style={{ textTransform: 'capitalize' }}>
             {bc.decision} {bc.decision_date && `on ${new Date(bc.decision_date).toLocaleDateString()}`}
@@ -506,6 +553,28 @@ export function BusinessCaseDetail() {
                   {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
                 </select></div>
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: benefitRecurrence === 'one_time' || !benefitRecurrence ? '1fr' : '1fr 1fr', gap: 10, marginTop: 10 }}>
+              <div className="login-field" style={{ marginBottom: 0 }}>
+                <label>How is this figure shaped over time?</label>
+                <select
+                  value={benefitRecurrence}
+                  onChange={(e) => setBenefitRecurrence(e.target.value as typeof benefitRecurrence)}
+                  required
+                  style={inputStyle}
+                >
+                  <option value="">Select</option>
+                  <option value="one_time">One-time — a single flat amount</option>
+                  <option value="annual">Annual — claimed value is the per-year rate</option>
+                  <option value="multi_year_lump_sum">Multi-year lump sum — claimed value is already a total</option>
+                </select>
+              </div>
+              {benefitRecurrence && benefitRecurrence !== 'one_time' && (
+                <div className="login-field" style={{ marginBottom: 0 }}>
+                  <label>{benefitRecurrence === 'annual' ? 'Number of years it recurs' : 'Realized over how many years'}</label>
+                  <input type="number" min="1" value={benefitDuration} onChange={(e) => setBenefitDuration(e.target.value)} required />
+                </div>
+              )}
+            </div>
             <button type="submit" disabled={addingBenefit} className="btn btn--project" style={{ marginTop: 10 }}>
               {addingBenefit ? 'Adding...' : 'Add benefit'}
             </button>
@@ -516,9 +585,51 @@ export function BusinessCaseDetail() {
           <div key={b.id} className="goal-card" style={{ marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{b.title}</span>
-              {b.claimed_value !== null && <span className="pill pill--indigo">GBP {b.claimed_value}</span>}
+              {b.claimed_value !== null && (
+                <span className="pill pill--indigo">
+                  GBP {b.claimed_value}{b.recurrence === 'annual' ? '/yr' : ''}
+                </span>
+              )}
             </div>
-            <div className="goal-card__meta" style={{ marginTop: 4 }}>{b.benefit_type} &middot; owner: {b.owner_name ?? 'unassigned'} &middot; {b.status}</div>
+            <div className="goal-card__meta" style={{ marginTop: 4 }}>
+              {b.benefit_type} &middot; owner: {b.owner_name ?? 'unassigned'} &middot; {b.status}
+              {b.recurrence === 'one_time' && ' \u00b7 one-time'}
+              {b.recurrence === 'annual' && ` \u00b7 annual for ${b.duration_years} year${b.duration_years === 1 ? '' : 's'}`}
+              {b.recurrence === 'multi_year_lump_sum' && ` \u00b7 total realized over ${b.duration_years} year${b.duration_years === 1 ? '' : 's'}`}
+            </div>
+
+            {!b.recurrence && (
+              classifyingBenefitId === b.id ? (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div className="login-field" style={{ marginBottom: 0 }}>
+                    <label>How is this figure shaped over time?</label>
+                    <select value={classifyRecurrence} onChange={(e) => setClassifyRecurrence(e.target.value as typeof classifyRecurrence)} style={inputStyle}>
+                      <option value="">Select</option>
+                      <option value="one_time">One-time</option>
+                      <option value="annual">Annual (per-year rate)</option>
+                      <option value="multi_year_lump_sum">Multi-year lump sum (already a total)</option>
+                    </select>
+                  </div>
+                  {classifyRecurrence && classifyRecurrence !== 'one_time' && (
+                    <div className="login-field" style={{ marginBottom: 0 }}>
+                      <label>Years</label>
+                      <input type="number" min="1" value={classifyDuration} onChange={(e) => setClassifyDuration(e.target.value)} style={{ ...inputStyle, width: 80 }} />
+                    </div>
+                  )}
+                  <button onClick={() => saveClassification(b.id)} disabled={!classifyRecurrence} className="btn btn--project" style={{ fontSize: 12, padding: '6px 12px' }}>Save</button>
+                  <button onClick={() => setClassifyingBenefitId(null)} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px' }}>Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setClassifyingBenefitId(b.id); setClassifyRecurrence(''); setClassifyDuration(''); }}
+                  className="btn btn--outline"
+                  style={{ fontSize: 11, padding: '3px 8px', marginTop: 6 }}
+                >
+                  &#9888; Not yet classified — click to set
+                </button>
+              )
+            )}
+            {classifyingBenefitId === b.id && classifyError && <p className="login-error" style={{ marginTop: 6 }}>{classifyError}</p>}
           </div>
         ))}
         {bc.benefits.length === 0 && <p style={{ fontSize: 13, color: 'var(--muted)' }}>No benefits recorded yet.</p>}
@@ -594,13 +705,29 @@ export function BusinessCaseDetail() {
         <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
           <div className="goal-card__meta">Cost-to-benefit read (manual reference only - not yet an automated flag)</div>
           <div className="goal-card__desc" style={{ marginTop: 6 }}>
-            Claimed benefit total minus actual spend to date: <strong>GBP {remainingBenefit.toFixed(0)}</strong>
-            {remainingBenefit < 0 && <span style={{ color: '#c23' }}> - spend currently exceeds claimed benefit</span>}
+            {(oneTimeBenefits.length > 0 || lumpSumBenefits.length > 0) && (
+              <div>
+                One-time + multi-year lump sum total minus actual spend to date: <strong>GBP {remainingBenefit.toFixed(0)}</strong>
+                {remainingBenefit < 0 && <span style={{ color: '#c23' }}> - spend currently exceeds this total</span>}
+              </div>
+            )}
+            {annualBenefits.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                Annual benefit rate: <strong>GBP {annualTotal.toFixed(0)}/yr</strong> across {annualBenefits.length} benefit{annualBenefits.length === 1 ? '' : 's'}
+                {' '}&mdash; shown separately, not blended into the total above, since a per-year rate isn't directly comparable to a point-in-time spend figure without choosing a horizon.
+              </div>
+            )}
+            {unclassifiedBenefits.length > 0 && (
+              <div style={{ marginTop: 4, color: '#8a6100' }}>
+                &#9888; GBP {unclassifiedTotal.toFixed(0)} across {unclassifiedBenefits.length} benefit{unclassifiedBenefits.length === 1 ? '' : 's'} not yet classified &mdash; excluded from the totals above until reviewed.
+              </div>
+            )}
+            {bc.benefits.length === 0 && <span>No benefits recorded yet.</span>}
           </div>
         </div>
       )}
 
-      {!bc.decision && has('business_case.decide') && (
+      {(!bc.decision || bc.decision === 'pending') && has('business_case.decide') && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => recordDecision('approved')} className="btn btn--project">Approve spend</button>
           <button onClick={() => recordDecision('declined')} className="btn btn--outline">Decline</button>

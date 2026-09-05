@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
 import './FiveYearHorizon.css';
@@ -19,6 +19,11 @@ interface HorizonDemand {
   is_agreed_locked: boolean;
 }
 
+interface Dependency {
+  demand_id: string; // depends on depends_on_id
+  depends_on_id: string;
+}
+
 const STATUS_LABEL: Record<string, string> = {
   raised: 'Raised',
   accepted: 'Accepted',
@@ -37,8 +42,10 @@ function currentFinancialYear(): number {
 export function FiveYearHorizon() {
   const { has } = usePermissions();
   const canReassign = has('demand.reassign_target_year');
+  const canLink = has('planning.edit');
 
   const [demands, setDemands] = useState<HorizonDemand[]>([]);
+  const [dependencies, setDependencies] = useState<Dependency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quarterView, setQuarterView] = useState(false);
@@ -57,6 +64,13 @@ export function FiveYearHorizon() {
   // all the ghost outline needs to render.
   const [dragPreview, setDragPreview] = useState<{ demandId: string; start: number; span: number } | null>(null);
 
+  // "Link two demands" mode -- click the link icon on the PREREQUISITE
+  // first, then click the link icon on the demand that depends on it.
+  // Not the same interaction as drag (which moves timing); this only
+  // draws a relationship, never changes either demand's dates.
+  const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
   const startYear = currentFinancialYear();
   const years = useMemo(() => Array.from({ length: 5 }, (_, i) => startYear + i), [startYear]);
   const columns = quarterView
@@ -69,6 +83,7 @@ export function FiveYearHorizon() {
     try {
       const data = await apiFetch('/api/demands/horizon');
       setDemands(data.demands);
+      setDependencies(data.dependencies ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong loading the horizon.');
     } finally {
@@ -104,16 +119,16 @@ export function FiveYearHorizon() {
   }
 
   const gridRef = useRef<HTMLDivElement>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
+  const barRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const colCount = columns.length;
 
   function pointerToColumn(clientX: number): number {
     const grid = gridRef.current;
     if (!grid) return 0;
     const rect = grid.getBoundingClientRect();
-    const labelWidth = 110;
-    const usable = rect.width - labelWidth;
-    const colWidth = usable / colCount;
-    const x = clientX - rect.left - labelWidth;
+    const colWidth = rect.width / colCount;
+    const x = clientX - rect.left;
     return Math.min(colCount - 1, Math.max(0, Math.floor(x / colWidth)));
   }
 
@@ -220,6 +235,122 @@ export function FiveYearHorizon() {
     return null;
   }
 
+  // ---------- Dependency linking ----------
+  async function handleLinkClick(d: HorizonDemand) {
+    if (!canLink) return;
+    setLinkError(null);
+
+    if (!linkingFrom) {
+      setLinkingFrom(d.id);
+      return;
+    }
+    if (linkingFrom === d.id) {
+      setLinkingFrom(null); // clicked the same bar again -- cancel
+      return;
+    }
+
+    const prerequisiteId = linkingFrom;
+    setLinkingFrom(null);
+    try {
+      await apiFetch(`/api/demands/${d.id}/dependencies`, {
+        method: 'POST',
+        body: JSON.stringify({ dependsOnId: prerequisiteId }),
+      });
+      await load();
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : 'Could not link these demands.');
+    }
+  }
+
+  async function removeDependency(dep: Dependency) {
+    try {
+      await apiFetch(`/api/demands/${dep.demand_id}/dependencies/${dep.depends_on_id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : 'Could not remove this link.');
+    }
+  }
+
+  // ---------- Connector line geometry ----------
+  // Measured from actual rendered bar positions (not re-derived column
+  // math) so it stays correct regardless of scroll position, quarter
+  // vs year view, or portfolio grouping -- one source of truth (the
+  // DOM) rather than two systems that could drift apart.
+  const [connectors, setConnectors] = useState<
+    { key: string; path: string; dep: Dependency }[]
+  >([]);
+
+  useLayoutEffect(() => {
+    const MARGIN = 4; // minimum real gap (px) before two boxes count as "clearly" left/right of each other
+
+    function recompute() {
+      const container = scrollBodyRef.current;
+      if (!container) return;
+      const containerRect = container.getBoundingClientRect();
+
+      const next = dependencies
+        .map((dep) => {
+          const fromEl = barRefs.current.get(dep.depends_on_id);
+          const toEl = barRefs.current.get(dep.demand_id);
+          if (!fromEl || !toEl) return null;
+
+          const fromRect = fromEl.getBoundingClientRect();
+          const toRect = toEl.getBoundingClientRect();
+          const rel = (r: DOMRect) => ({
+            left: r.left - containerRect.left + container.scrollLeft,
+            right: r.right - containerRect.left + container.scrollLeft,
+            top: r.top - containerRect.top + container.scrollTop,
+            bottom: r.bottom - containerRect.top + container.scrollTop,
+            centerX: r.left + r.width / 2 - containerRect.left + container.scrollLeft,
+            centerY: r.top + r.height / 2 - containerRect.top + container.scrollTop,
+          });
+          const from = rel(fromRect);
+          const to = rel(toRect);
+
+          let path: string;
+
+          if (to.left > from.right + MARGIN) {
+            // Target clearly to the right -- exit source's right edge,
+            // enter target's left edge. Jog at the true midpoint between
+            // the two edges, not a fixed offset -- guarantees the final
+            // segment always travels left-to-right into the target,
+            // however close together the boxes are.
+            const midX = (from.right + to.left) / 2;
+            path = `M ${from.right} ${from.centerY} L ${midX} ${from.centerY} L ${midX} ${to.centerY} L ${to.left} ${to.centerY}`;
+          } else if (to.right < from.left - MARGIN) {
+            // Target clearly to the left -- mirror of the above.
+            const midX = (from.left + to.right) / 2;
+            path = `M ${from.left} ${from.centerY} L ${midX} ${from.centerY} L ${midX} ${to.centerY} L ${to.right} ${to.centerY}`;
+          } else {
+            // Boxes overlap horizontally -- typically two different
+            // portfolio rows at the same point in time. Left/right
+            // routing has no clean edges to use here (that's what was
+            // producing the backwards-looking arrow), so route via
+            // top/bottom instead, jogging at the true vertical midpoint.
+            const targetBelow = to.centerY >= from.centerY;
+            const y1 = targetBelow ? from.bottom : from.top;
+            const y2 = targetBelow ? to.top : to.bottom;
+            const midY = (y1 + y2) / 2;
+            path = `M ${from.centerX} ${y1} L ${from.centerX} ${midY} L ${to.centerX} ${midY} L ${to.centerX} ${y2}`;
+          }
+
+          return { key: `${dep.demand_id}-${dep.depends_on_id}`, path, dep };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
+
+      setConnectors(next);
+    }
+
+    recompute();
+    window.addEventListener('resize', recompute);
+    const container = scrollBodyRef.current;
+    container?.addEventListener('scroll', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      container?.removeEventListener('scroll', recompute);
+    };
+  }, [dependencies, demands, quarterView, grouped]);
+
   if (loading) return <div className="horizon-state">Loading the five-year horizon…</div>;
   if (error && demands.length === 0) return <div className="horizon-state horizon-state--error">{error}</div>;
 
@@ -233,10 +364,16 @@ export function FiveYearHorizon() {
       </div>
 
       {error && <div className="horizon-inline-error">{error}</div>}
+      {linkError && <div className="horizon-inline-error">{linkError}</div>}
+
+      {linkingFrom && (
+        <div className="horizon-linking-banner">
+          Click the demand that depends on this one to link them &mdash; or click the same box again to cancel.
+        </div>
+      )}
 
       <div className="horizon-grid" ref={gridRef}>
-        <div className="horizon-grid__header" style={{ gridTemplateColumns: `110px repeat(${colCount}, 1fr)` }}>
-          <div />
+        <div className="horizon-grid__header" style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
           {quarterView
             ? years.map((y) => (
                 <div key={y} className="horizon-grid__year-label" style={{ gridColumn: 'span 4' }}>
@@ -250,8 +387,7 @@ export function FiveYearHorizon() {
               ))}
         </div>
         {quarterView && (
-          <div className="horizon-grid__subheader" style={{ gridTemplateColumns: `110px repeat(${colCount}, 1fr)` }}>
-            <div />
+          <div className="horizon-grid__subheader" style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
             {columns.map((c, i) => (
               <div key={i} className="horizon-grid__quarter-label">
                 Q{c.quarter}
@@ -260,58 +396,96 @@ export function FiveYearHorizon() {
           </div>
         )}
 
-        {grouped.map((group) => (
-          <div key={group.name} className="horizon-group">
-            <div className="horizon-group__label">{group.name}</div>
-            {group.items.map((d) => {
-              const { start, span } = spanColumns(d);
-              const lock = lockIcon(d);
-              const draggable = canReassign && !lock;
-              return (
-                <div key={d.id} className="horizon-row" style={{ gridTemplateColumns: `110px repeat(${colCount}, 1fr)` }}>
-                  <div className="horizon-row__label">{d.title}</div>
-                  <div
-                    className={`horizon-bar goal-card horizon-bar--${d.status}${lock ? ' horizon-bar--locked' : ''}`}
-                    style={{ gridColumn: `${start + 2} / span ${span}`, gridRow: 1 }}
-                  >
-                    {draggable && (
+        <div className="horizon-scroll-body" ref={scrollBodyRef} style={{ position: 'relative' }}>
+          {grouped.map((group) => (
+            <div key={group.name} className="horizon-group">
+              <div className="horizon-group__label">{group.name}</div>
+              {group.items.map((d) => {
+                const { start, span } = spanColumns(d);
+                const lock = lockIcon(d);
+                const draggable = canReassign && !lock;
+                const isLinkingSource = linkingFrom === d.id;
+                return (
+                  <div key={d.id} className="horizon-row" style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)` }}>
+                    <div
+                      ref={(el) => { if (el) barRefs.current.set(d.id, el); else barRefs.current.delete(d.id); }}
+                      className={`horizon-bar goal-card horizon-bar--${d.status}${lock ? ' horizon-bar--locked' : ''}${isLinkingSource ? ' horizon-bar--linking' : ''}`}
+                      style={{ gridColumn: `${start + 1} / span ${span}`, gridRow: 1 }}
+                    >
+                      {draggable && (
+                        <span
+                          className="horizon-bar__handle horizon-bar__handle--start"
+                          onPointerDown={() => beginDrag(d, 'resize-start')}
+                          aria-label="Resize start"
+                        />
+                      )}
                       <span
-                        className="horizon-bar__handle horizon-bar__handle--start"
-                        onPointerDown={() => beginDrag(d, 'resize-start')}
-                        aria-label="Resize start"
-                      />
-                    )}
-                    <span className="horizon-bar__body" onPointerDown={() => draggable && beginDrag(d, 'move')}>
-                      {lock === 'lock' && <span className="horizon-bar__icon" aria-hidden="true">🔒</span>}
-                      {lock === 'clock' && <span className="horizon-bar__icon" aria-hidden="true">🕐</span>}
-                      {!lock && draggable && <span className="horizon-bar__icon" aria-hidden="true">⠿</span>}
-                      {STATUS_LABEL[d.status] ?? d.status}
-                    </span>
-                    {draggable && (
-                      <span
-                        className="horizon-bar__handle horizon-bar__handle--end"
-                        onPointerDown={() => beginDrag(d, 'resize-end')}
-                        aria-label="Resize end"
+                        className="horizon-bar__body"
+                        onPointerDown={() => draggable && beginDrag(d, 'move')}
+                        title={`${d.title} — ${STATUS_LABEL[d.status] ?? d.status}`}
+                      >
+                        {lock === 'lock' && <span className="horizon-bar__icon" aria-hidden="true">🔒</span>}
+                        {lock === 'clock' && <span className="horizon-bar__icon" aria-hidden="true">🕐</span>}
+                        {!lock && draggable && <span className="horizon-bar__icon" aria-hidden="true">⠿</span>}
+                        <span className="horizon-bar__title">{d.title}</span>
+                      </span>
+                      {canLink && (
+                        <button
+                          type="button"
+                          className="horizon-bar__link-btn"
+                          onClick={(e) => { e.stopPropagation(); handleLinkClick(d); }}
+                          title={isLinkingSource ? 'Cancel linking' : 'Link: this demand is needed before another'}
+                          aria-label="Link to another demand"
+                        >
+                          🔗
+                        </button>
+                      )}
+                      {draggable && (
+                        <span
+                          className="horizon-bar__handle horizon-bar__handle--end"
+                          onPointerDown={() => beginDrag(d, 'resize-end')}
+                          aria-label="Resize end"
+                        />
+                      )}
+                    </div>
+                    {dragPreview?.demandId === d.id && (
+                      <div
+                        className="horizon-ghost"
+                        style={{ gridColumn: `${dragPreview.start + 1} / span ${dragPreview.span}`, gridRow: 1 }}
                       />
                     )}
                   </div>
-                  {dragPreview?.demandId === d.id && (
-                    <div
-                      className="horizon-ghost"
-                      style={{ gridColumn: `${dragPreview.start + 2} / span ${dragPreview.span}`, gridRow: 1 }}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                );
+              })}
+            </div>
+          ))}
+
+          <svg className="horizon-connectors" aria-hidden="true">
+            <defs>
+              <marker id="horizon-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--indigo)" />
+              </marker>
+            </defs>
+            {connectors.map((c) => (
+              <path
+                key={c.key}
+                d={c.path}
+                className="horizon-connector-line"
+                markerEnd="url(#horizon-arrow)"
+                onClick={() => removeDependency(c.dep)}
+              >
+                <title>Click to remove this link</title>
+              </path>
+            ))}
+          </svg>
+        </div>
       </div>
 
       <div className="horizon-legend">
         <span>🔒 Agreed — locked, use mid-year revision to move</span>
         <span>🕐 Fixed date driver — locked</span>
         <span>⠿ Drag or resize (lead/admin)</span>
+        <span>🔗 Link two demands — click one, then the one that depends on it</span>
       </div>
 
       {reassignTarget && (

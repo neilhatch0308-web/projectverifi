@@ -14,8 +14,7 @@ class IncompleteScoring extends Error {
 
 // ---------- List ----------
 router.get('/demands', requireAuth, async (req, res) => {
-  const { organizationId, userId, permissions } = req.user!;
-  const canViewConfidential = permissions.includes('demand.view_confidential');
+  const { organizationId, userId } = req.user!;
 
   try {
     const demands = await withTenantContext(organizationId, async (client) => {
@@ -37,9 +36,9 @@ router.get('/demands', requireAuth, async (req, res) => {
          LEFT JOIN demand_assessment a ON a.demand_id = d.id
          LEFT JOIN business_case bc ON bc.demand_id = d.id
          LEFT JOIN app_user assessor ON assessor.id = d.assigned_assessor_id
-         WHERE d.confidential = false OR d.raised_by = $1 OR $2
+         WHERE d.confidential = false OR can_view_confidential_demand(d.id, $1)
          ORDER BY d.raised_date DESC`,
-        [userId, canViewConfidential]
+        [userId]
       );
       return result.rows;
     });
@@ -53,7 +52,7 @@ router.get('/demands', requireAuth, async (req, res) => {
 
 // ---------- Detail ----------
 router.get('/demands/:id', requireAuth, async (req, res) => {
-  const { organizationId, userId, permissions } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
@@ -98,11 +97,13 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
       const demand = demandResult.rows[0];
       if (!demand) return null;
 
-      // Confidential demand is invisible to anyone who isn't its raiser
-      // and lacks demand.view_confidential - 404, not 403, so a lookup
-      // doesn't even confirm the demand exists to someone who shouldn't
-      // see it.
-      const canView = !demand.confidential || demand.raised_by === userId || permissions.includes('demand.view_confidential');
+      // Confidential demand is invisible to anyone who can't see it -
+      // 404, not 403, so a lookup doesn't even confirm the demand
+      // exists to someone who shouldn't see it.
+      const canView = !demand.confidential || (await client.query(
+        `SELECT can_view_confidential_demand($1, $2) AS can_view`,
+        [id, userId]
+      )).rows[0].can_view;
       if (!canView) return null;
 
       const criteriaResult = await client.query(
@@ -416,6 +417,7 @@ const createDemandSchema = z.object({
   claimedCost: z.number().min(0, 'Give your best estimate of cost'),
   claimedBenefit: z.number().min(0, 'Give your best estimate of benefit'),
   confidential: z.boolean().optional().default(false),
+  confidentialViewerIds: z.array(looseUuid()).optional(),
   criteria: z.array(criterionSchema).min(1, 'Add at least one success measure'),
   scores: z.array(scoreSchema).min(1, 'Priority scoring is required'),
   strategicGoalId: looseUuid().optional(),
@@ -433,7 +435,7 @@ router.post('/demands', requireAuth, async (req, res) => {
   const {
     title, description, outcomeStatement, portfolioId, deliveringSubPortfolioId, sponsorUserId, needByDate,
     adoptionChangeType, dateDriverType, dateDriverDetail, claimedCost, claimedBenefit,
-    confidential, criteria, scores, strategicGoalId, alignmentNotes,
+    confidential, confidentialViewerIds, criteria, scores, strategicGoalId, alignmentNotes,
     targetStartYear, targetStartQuarter,
   } = parsed.data;
   const { userId, organizationId } = req.user!;
@@ -472,6 +474,18 @@ router.post('/demands', requireAuth, async (req, res) => {
       );
 
       const newDemand = demandResult.rows[0];
+
+      if (confidential && confidentialViewerIds && confidentialViewerIds.length > 0) {
+        for (const viewerId of confidentialViewerIds) {
+          if (viewerId === userId) continue; // raiser already has visibility structurally, no need for a row
+          await client.query(
+            `INSERT INTO demand_confidential_viewer (id, organization_id, demand_id, user_id, added_by)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4)
+             ON CONFLICT (demand_id, user_id) DO NOTHING`,
+            [organizationId, newDemand.id, viewerId, userId]
+          );
+        }
+      }
 
       for (const c of criteria) {
         await client.query(
@@ -765,6 +779,118 @@ router.post('/demands/:id/accept', requireAuth, requirePermission('demand.triage
   } catch (err) {
     console.error('Failed to accept demand:', err);
     res.status(500).json({ error: 'Failed to accept demand' });
+  }
+});
+
+// ---------- Confidential demand named viewers ----------
+// Only someone who can already see the demand may view, add to, or
+// remove from its named-viewer list - the same rule as seeing the
+// demand itself, since the list of who's trusted is part of what's
+// being protected. Structural access (raiser, tagged assessor, RACI
+// seats, business case sponsor/submitter) is shown for transparency
+// but can't be removed here - that's a consequence of reassigning the
+// underlying role, not a row in this table.
+router.get('/demands/:id/confidential-viewers', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { organizationId, userId } = req.user!;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const demandRow = await client.query(`SELECT confidential, raised_by FROM demand WHERE id = $1`, [id]);
+      if (demandRow.rows.length === 0) return { notFound: true as const };
+      const demand = demandRow.rows[0];
+
+      if (demand.confidential) {
+        const canView = (await client.query(`SELECT can_view_confidential_demand($1, $2) AS can_view`, [id, userId])).rows[0].can_view;
+        if (!canView) return { notFound: true as const }; // 404, not 403 - don't confirm it exists
+      }
+
+      const named = await client.query(
+        `SELECT v.user_id, u.display_name, v.added_at, adder.display_name AS added_by_name
+           FROM demand_confidential_viewer v
+           JOIN app_user u ON u.id = v.user_id
+           LEFT JOIN app_user adder ON adder.id = v.added_by
+          WHERE v.demand_id = $1
+          ORDER BY v.added_at`,
+        [id]
+      );
+
+      const structural = await client.query(
+        `SELECT r.accountable_financial_id, r.accountable_scope_id, r.accountable_schedule_id,
+                r.sponsor_id, r.benefit_owner_id
+           FROM demand_raci r WHERE r.demand_id = $1`,
+        [id]
+      );
+
+      return { demand, named: named.rows, raci: structural.rows[0] ?? null };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to fetch confidential viewers:', err);
+    res.status(500).json({ error: 'Failed to fetch confidential viewers' });
+  }
+});
+
+const addViewerSchema = z.object({ userId: looseUuid() });
+
+router.post('/demands/:id/confidential-viewers', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const parsed = addViewerSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const demandRow = await client.query(`SELECT confidential FROM demand WHERE id = $1`, [id]);
+      if (demandRow.rows.length === 0) return { notFound: true as const };
+
+      const canView = (await client.query(`SELECT can_view_confidential_demand($1, $2) AS can_view`, [id, userId])).rows[0].can_view;
+      if (!canView) return { notFound: true as const };
+
+      await client.query(
+        `INSERT INTO demand_confidential_viewer (id, organization_id, demand_id, user_id, added_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4)
+         ON CONFLICT (demand_id, user_id) DO NOTHING`,
+        [organizationId, id, parsed.data.userId, userId]
+      );
+      return { ok: true as const };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to add confidential viewer:', err);
+    res.status(500).json({ error: 'Failed to add confidential viewer' });
+  }
+});
+
+router.delete('/demands/:id/confidential-viewers/:userId', requireAuth, async (req, res) => {
+  const { id, userId: targetUserId } = req.params;
+  const { organizationId, userId } = req.user!;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const demandRow = await client.query(`SELECT confidential FROM demand WHERE id = $1`, [id]);
+      if (demandRow.rows.length === 0) return { notFound: true as const };
+
+      const canView = (await client.query(`SELECT can_view_confidential_demand($1, $2) AS can_view`, [id, userId])).rows[0].can_view;
+      if (!canView) return { notFound: true as const };
+
+      await client.query(
+        `DELETE FROM demand_confidential_viewer WHERE demand_id = $1 AND user_id = $2`,
+        [id, targetUserId]
+      );
+      return { ok: true as const };
+    });
+
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to remove confidential viewer:', err);
+    res.status(500).json({ error: 'Failed to remove confidential viewer' });
   }
 });
 

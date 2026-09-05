@@ -399,14 +399,18 @@ router.patch('/users/:id/status', requireAuth, requirePermission('users.manage')
 // Two kinds of "this needs you": role-wide (anyone holding the
 // permission sees it - triage) and person-tagged (a specific named
 // assessor sees it, falling back to role-wide if nobody's tagged).
-// Confidentiality still applies here - a confidential demand needing
-// triage doesn't show up for a PMO member who can't see confidential
-// demand at all, same rule as the main list endpoint.
+// Confidentiality still applies here via can_view_confidential_demand()
+// - same rule as the main list endpoint. One real consequence worth
+// knowing: an UNASSIGNED confidential demand (assigned_assessor_id
+// NULL) is invisible to every potential assessor, since "open to
+// anyone with demand.assess" is exactly the broad visibility a
+// confidential demand is meant not to have. Someone who can already
+// see it must explicitly assign a named assessor before anyone can
+// pick it up - this is the model working as intended, not a gap.
 router.get('/me/actions', requireAuth, async (req, res) => {
   const { organizationId, userId, permissions } = req.user!;
   const canTriage = permissions.includes('demand.triage');
   const canAssess = permissions.includes('demand.assess');
-  const canViewConfidential = permissions.includes('demand.view_confidential');
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
@@ -414,9 +418,9 @@ router.get('/me/actions', requireAuth, async (req, res) => {
         `SELECT d.id, d.title, d.raised_date, p.name AS portfolio_name
          FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
          WHERE d.status = 'raised' AND $1
-           AND (d.confidential = false OR d.raised_by = $2 OR $3)
+           AND (d.confidential = false OR can_view_confidential_demand(d.id, $2))
          ORDER BY d.raised_date ASC`,
-        [canTriage, userId, canViewConfidential]
+        [canTriage, userId]
       );
 
       const assessmentNeeded = await client.query(
@@ -424,9 +428,9 @@ router.get('/me/actions', requireAuth, async (req, res) => {
          FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
          WHERE d.status = 'accepted'
            AND (d.assigned_assessor_id = $1 OR (d.assigned_assessor_id IS NULL AND $2))
-           AND (d.confidential = false OR d.raised_by = $1 OR $3)
+           AND (d.confidential = false OR can_view_confidential_demand(d.id, $1))
          ORDER BY d.raised_date ASC`,
-        [userId, canAssess, canViewConfidential]
+        [userId, canAssess]
       );
 
       return { triageNeeded: triageNeeded.rows, assessmentNeeded: assessmentNeeded.rows };

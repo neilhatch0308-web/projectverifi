@@ -112,7 +112,8 @@ export function GovernanceTiers() {
           <h1 className="page-title">Governance Tiers</h1>
           <p className="page-subtitle">
             Cumulative, by requested spend. Each tier ADDS its approvers and documents
-            to every tier below it - a £300k case needs everything from £0, £150k, and £250k combined.
+            to every tier below it - A finance committee report needs all porceeding levels. 
+            PDF reporting extracts the corect level of information.
           </p>
         </div>
         <button onClick={() => setShowAdd((s) => !s)} className="btn btn--project" style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}>

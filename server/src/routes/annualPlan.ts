@@ -8,7 +8,7 @@ const router = Router();
 
 // ---------- Get the current (latest) plan for a portfolio/year, creating
 // a fresh draft if none exists yet ----------
-router.get('/annual-plans/current', requireAuth, async (req, res) => {
+router.get('/annual-plans/current', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const portfolioId = req.query.portfolioId as string;
   const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
@@ -46,8 +46,8 @@ router.get('/annual-plans/current', requireAuth, async (req, res) => {
 });
 
 // ---------- Full board: envelope, totals, and demand grouped by column ----------
-router.get('/annual-plans/:id/board', requireAuth, async (req, res) => {
-  const { organizationId } = req.user!;
+router.get('/annual-plans/:id/board', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
@@ -108,8 +108,9 @@ router.get('/annual-plans/:id/board', requireAuth, async (req, res) => {
              sub.parent_portfolio_id = $2
              OR (d.delivering_sub_portfolio_id IS NULL AND d.portfolio_id = $2)
            )
+           AND (d.confidential = false OR can_view_confidential_demand(d.id, $3))
          ORDER BY d.date_driver_type IS NULL OR d.date_driver_type = 'none', dpv.weighted_score DESC NULLS LAST`,
-        [id, plan.portfolio_id]
+        [id, plan.portfolio_id, userId]
       );
 
       const all = demandResult.rows.filter((r) => !r.column_placement);
@@ -355,7 +356,7 @@ router.post('/annual-plans/:id/revise', requireAuth, requirePermission('planning
 });
 
 // ---------- Version history for a portfolio/year ----------
-router.get('/annual-plans/history', requireAuth, async (req, res) => {
+router.get('/annual-plans/history', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const { organizationId } = req.user!;
   const portfolioId = req.query.portfolioId as string;
   const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();

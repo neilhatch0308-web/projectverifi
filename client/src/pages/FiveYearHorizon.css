@@ -115,6 +115,8 @@
   color: var(--graphite);
   cursor: default;
   transition: box-shadow 0.15s ease;
+  overflow: hidden;
+  min-width: 0;
 }
 
 /* Status accents pull directly from the brand pair (teal = Project
@@ -137,14 +139,23 @@
   gap: 4px;
   cursor: grab;
   user-select: none;
+  min-width: 0; /* required for the ellipsis child to actually shrink inside a flex row */
 }
 .horizon-bar--locked .horizon-bar__body {
   cursor: default;
 }
 
+.horizon-bar__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .horizon-bar__icon {
   font-size: 0.75rem;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .horizon-bar__handle {
@@ -154,8 +165,8 @@
   width: 8px;
   cursor: ew-resize;
 }
-.horizon-bar__handle--start { left: -2px; }
-.horizon-bar__handle--end { right: -2px; }
+.horizon-bar__handle--start { left: 0; }
+.horizon-bar__handle--end { right: 0; }
 
 .horizon-ghost {
   border: 2px dashed var(--indigo);
@@ -257,4 +268,59 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.horizon-scroll-body {
+  position: relative;
+}
+
+.horizon-connectors {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* re-enabled per-path below, so empty space never blocks bar interactions */
+  overflow: visible;
+}
+
+.horizon-connector-line {
+  fill: none;
+  stroke: var(--indigo);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: stroke; /* only the line itself is clickable, not its bounding box */
+  cursor: pointer;
+}
+.horizon-connector-line:hover {
+  stroke-width: 3;
+  stroke: #33337a;
+}
+
+.horizon-bar__link-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+.horizon-bar__link-btn:hover {
+  opacity: 1;
+}
+.horizon-bar--linking {
+  box-shadow: 0 0 0 2px var(--indigo);
+}
+
+.horizon-linking-banner {
+  background: color-mix(in srgb, var(--indigo) 10%, white);
+  border: 1px solid var(--indigo);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--graphite);
+  margin-bottom: 12px;
 }
