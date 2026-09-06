@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface Budget {
   portfolio_id: string;
@@ -53,6 +54,8 @@ type ChangeEntry =
 const inputStyle = { padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13, width: '100%' };
 
 export function PortfolioBudgets() {
+  const { has } = usePermissions();
+  const canManage = has('budgets.manage');
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -254,13 +257,15 @@ export function PortfolioBudgets() {
                     <td style={{ textAlign: 'right' }}>
                       {hasBaseline ? (
                         <span style={{ fontWeight: 600 }}>{Number(b.baseline_amount).toLocaleString()}</span>
-                      ) : (
+                      ) : canManage ? (
                         <input
                           type="number" step="any" min="0" placeholder="Set once"
                           value={baselineDraft[b.portfolio_id] ?? ''}
                           onChange={(e) => setBaselineDraft((s) => ({ ...s, [b.portfolio_id]: e.target.value }))}
                           style={{ ...inputStyle, width: 120, textAlign: 'right' }}
                         />
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>not set</span>
                       )}
                     </td>
 
@@ -269,7 +274,11 @@ export function PortfolioBudgets() {
                     </td>
 
                     <td style={{ textAlign: 'right' }}>
-                      {hasBaseline ? (
+                      {!hasBaseline ? (
+                        <span style={{ color: 'var(--muted)' }}>not set</span>
+                      ) : !canManage ? (
+                        <span style={{ fontWeight: 600 }}>{Number(b.assigned_amount).toLocaleString()}</span>
+                      ) : (
                         <>
                           <input
                             type="number" step="any" min="0"
@@ -286,19 +295,17 @@ export function PortfolioBudgets() {
                             />
                           )}
                         </>
-                      ) : (
-                        <span style={{ color: 'var(--muted)' }}>not set</span>
                       )}
                     </td>
 
                     <td>
-                      {!hasBaseline && baselineDraft[b.portfolio_id] && (
+                      {canManage && !hasBaseline && baselineDraft[b.portfolio_id] && (
                         <button onClick={() => openBaselineConfirm(b.portfolio_id, b.portfolio_name)}
                           className="btn btn--project" style={{ fontSize: 11, padding: '4px 8px' }}>
                           Set baseline
                         </button>
                       )}
-                      {hasBaseline && assignedDraft[b.portfolio_id] !== undefined && (
+                      {canManage && hasBaseline && assignedDraft[b.portfolio_id] !== undefined && (
                         <button onClick={() => saveAssigned(b.portfolio_id)} disabled={savingAssigned === b.portfolio_id}
                           className="btn btn--outline" style={{ fontSize: 11, padding: '4px 8px' }}>
                           {savingAssigned === b.portfolio_id ? '...' : 'Save'}

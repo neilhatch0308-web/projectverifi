@@ -1,6 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
+import { useHideConfidential } from '../lib/useHideConfidential';
+import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
+import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Demand {
   id: string;
@@ -12,6 +15,7 @@ interface Demand {
   date_driver_type: string | null;
   business_case_id: string | null;
   business_case_decision: string | null;
+  delivery_stage: 'delivery_started' | 'delivery_completed' | 'adoption_measured' | 'benefit_realized' | null;
   stopped_at: string | null;
   confidential: boolean;
   portfolio_id: string;
@@ -82,7 +86,7 @@ function DemandCard({ d, stage }: { d: Demand; stage: Stage }) {
             <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px' }}>Stopped</span>
           ) : stage.key === 'promoted' ? (
             <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px', textTransform: 'capitalize' }}>
-              {d.business_case_decision ?? 'Awaiting decision'}
+              {promotedDemandLabel(d)}
             </span>
           ) : (
             <span>Score {Number(d.weighted_score) > 0 ? Number(d.weighted_score).toFixed(1) : '-'}</span>
@@ -128,10 +132,14 @@ export function AllDemand() {
       ? portfolios.find((p) => selectedPortfolioIds.has(p.id))?.name ?? '1 selected'
       : `${selectedPortfolioIds.size} portfolios selected`;
 
+  const { hideConfidential, setHideConfidential } = useHideConfidential();
+  const hasConfidential = demands.some((d) => d.confidential);
+
   const filtered = demands.filter(
     (d) =>
       d.title.toLowerCase().includes(search.toLowerCase()) &&
-      (selectedPortfolioIds.size === 0 || selectedPortfolioIds.has(d.portfolio_id))
+      (selectedPortfolioIds.size === 0 || selectedPortfolioIds.has(d.portfolio_id)) &&
+      (!hideConfidential || !d.confidential)
   );
 
   return (
@@ -207,6 +215,8 @@ export function AllDemand() {
             </>
           )}
         </div>
+
+        <ConfidentialityToggle hideConfidential={hideConfidential} onToggle={setHideConfidential} hasConfidential={hasConfidential} />
       </div>
 
       {loading && <p>Loading...</p>}

@@ -1,6 +1,9 @@
 import { useEffect, useState, type DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
+import { usePermissions } from '../context/PermissionsContext';
+import { useHideConfidential } from '../lib/useHideConfidential';
+import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
 
 interface Portfolio { id: string; name: string; }
 
@@ -8,6 +11,7 @@ interface DemandCard {
   id: string; title: string; date_driver_type: string | null; date_driver_detail: string | null;
   complexity_tier: string | null; cost: number | null; weighted_score: number;
   column_placement: string | null; deferred_reason: string | null; sub_portfolio_name: string | null;
+  confidential: boolean;
 }
 
 interface Board {
@@ -35,6 +39,8 @@ const DATE_DRIVER_SHORT: Record<string, string> = {
 
 export function AnnualPlanningBoard() {
   const navigate = useNavigate();
+  const { has } = usePermissions();
+  const canEdit = has('planning.edit');
   const currentYear = new Date().getFullYear();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [portfolioId, setPortfolioId] = useState('all');
@@ -367,13 +373,19 @@ export function AnnualPlanningBoard() {
   const discPct = allocated > 0 ? (Math.min(discretionary, genuineChoice) / allocated) * 100 : 0;
   const overPct = allocated > 0 && isOver ? ((discretionary - genuineChoice) / allocated) * 100 : 0;
 
+  const { hideConfidential, setHideConfidential } = useHideConfidential();
+  const hasConfidential = [...board!.columns.all, ...board!.columns.budget, ...board!.columns.deferred].some((d) => d.confidential);
+  const visibleAll = board!.columns.all.filter((d) => !hideConfidential || !d.confidential);
+  const visibleBudget = board!.columns.budget.filter((d) => !hideConfidential || !d.confidential);
+  const visibleDeferred = board!.columns.deferred.filter((d) => !hideConfidential || !d.confidential);
+
   function renderCard(d: DemandCard) {
     const hasDriver = d.date_driver_type && d.date_driver_type !== 'none';
     const isDragging = draggedId === d.id;
     return (
       <div
         key={d.id}
-        draggable={!isLocked}
+        draggable={!isLocked && canEdit}
         onDragStart={(e) => handleDragStart(e, d.id)}
         onDragEnd={handleDragEnd}
         onClick={() => navigate(`/demand/${d.id}`)}
@@ -383,7 +395,7 @@ export function AnnualPlanningBoard() {
           borderLeft: hasDriver ? '3px solid #E8A317' : undefined,
           background: hasDriver ? 'rgba(232,163,23,0.03)' : undefined,
           opacity: isDragging ? 0.35 : 1,
-          cursor: isLocked ? 'pointer' : 'grab',
+          cursor: isLocked || !canEdit ? 'pointer' : 'grab',
           transition: 'opacity 0.12s ease',
         }}
       >
@@ -456,11 +468,12 @@ export function AnnualPlanningBoard() {
             &middot; agreed by {board!.plan.agreed_by_name} on {board!.plan.agreed_at && new Date(board!.plan.agreed_at).toLocaleDateString()}
           </span>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {planStatus === 'draft' && <button onClick={() => setShowLockConfirm(true)} className="btn btn--project">Lock Plan</button>}
-          {planStatus === 'locked' && <button onClick={() => setShowAgreeConfirm(true)} className="btn btn--project">Agree Plan</button>}
-          {planStatus === 'locked' && <button onClick={() => setShowUnlockConfirm(true)} className="btn btn--outline">Unlock Plan</button>}
-          {planStatus === 'agreed' && <button onClick={revisePlan} className="btn btn--outline">Start Mid Year</button>}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ConfidentialityToggle hideConfidential={hideConfidential} onToggle={setHideConfidential} hasConfidential={hasConfidential} />
+          {canEdit && planStatus === 'draft' && <button onClick={() => setShowLockConfirm(true)} className="btn btn--project">Lock Plan</button>}
+          {canEdit && planStatus === 'locked' && <button onClick={() => setShowAgreeConfirm(true)} className="btn btn--project">Agree Plan</button>}
+          {canEdit && planStatus === 'locked' && <button onClick={() => setShowUnlockConfirm(true)} className="btn btn--outline">Unlock Plan</button>}
+          {canEdit && planStatus === 'agreed' && <button onClick={revisePlan} className="btn btn--outline">Start Mid Year</button>}
         </div>
       </div>
 
@@ -610,10 +623,10 @@ export function AnnualPlanningBoard() {
           style={columnStyle('all', { background: 'var(--cloud)', borderRadius: 'var(--radius)', padding: 12, minHeight: 200 })}
         >
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
-            All demand <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({board!.columns.all.length})</span>
+            All demand <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({visibleAll.length})</span>
           </div>
-          {board!.columns.all.map(renderCard)}
-          {board!.columns.all.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>No unplaced assessed demand.</p>}
+          {visibleAll.map(renderCard)}
+          {visibleAll.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>No unplaced assessed demand.</p>}
         </div>
 
         <div
@@ -623,10 +636,10 @@ export function AnnualPlanningBoard() {
           style={columnStyle('budget', { background: 'rgba(23,195,178,0.06)', border: '1.5px solid var(--teal)', borderRadius: 'var(--radius)', padding: 12, minHeight: 200 })}
         >
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
-            In budget <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({board!.columns.budget.length})</span>
+            In budget <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({visibleBudget.length})</span>
           </div>
-          {board!.columns.budget.map(renderCard)}
-          {board!.columns.budget.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Drag demand here to commit it.</p>}
+          {visibleBudget.map(renderCard)}
+          {visibleBudget.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Drag demand here to commit it.</p>}
         </div>
 
         <div
@@ -636,10 +649,10 @@ export function AnnualPlanningBoard() {
           style={columnStyle('deferred', { background: 'rgba(96,102,119,0.05)', borderRadius: 'var(--radius)', padding: 12, minHeight: 200 })}
         >
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
-            Deferred <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({board!.columns.deferred.length})</span>
+            Deferred <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--muted)' }}>({visibleDeferred.length})</span>
           </div>
-          {board!.columns.deferred.map(renderCard)}
-          {board!.columns.deferred.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Drag here to defer - a reason will be asked for.</p>}
+          {visibleDeferred.map(renderCard)}
+          {visibleDeferred.length === 0 && <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Drag here to defer - a reason will be asked for.</p>}
         </div>
       </div>
 

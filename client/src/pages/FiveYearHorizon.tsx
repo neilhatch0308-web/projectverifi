@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
+import { useHideConfidential } from '../lib/useHideConfidential';
+import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
 import './FiveYearHorizon.css';
 
 type Quarter = 1 | 2 | 3 | 4 | null;
@@ -17,6 +19,7 @@ interface HorizonDemand {
   portfolio_id: string;
   portfolio_name: string;
   is_agreed_locked: boolean;
+  confidential: boolean;
 }
 
 interface Dependency {
@@ -95,14 +98,18 @@ export function FiveYearHorizon() {
     load();
   }, [load]);
 
+  const { hideConfidential, setHideConfidential } = useHideConfidential();
+  const hasConfidential = demands.some((d) => d.confidential);
+
   const grouped = useMemo(() => {
     const map = new Map<string, { name: string; items: HorizonDemand[] }>();
     for (const d of demands) {
+      if (hideConfidential && d.confidential) continue;
       if (!map.has(d.portfolio_id)) map.set(d.portfolio_id, { name: d.portfolio_name, items: [] });
       map.get(d.portfolio_id)!.items.push(d);
     }
     return Array.from(map.values());
-  }, [demands]);
+  }, [demands, hideConfidential]);
 
   function columnIndex(year: number, quarter: Quarter) {
     if (quarterView) {
@@ -358,9 +365,12 @@ export function FiveYearHorizon() {
     <div className="horizon-page">
       <div className="horizon-header">
         <h1 className="horizon-title">Five-year horizon</h1>
-        <button className="pill pill--toggle" onClick={() => setQuarterView((v) => !v)} aria-pressed={quarterView}>
-          {quarterView ? 'Year view' : 'Quarter view'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ConfidentialityToggle hideConfidential={hideConfidential} onToggle={setHideConfidential} hasConfidential={hasConfidential} />
+          <button className="pill pill--toggle" onClick={() => setQuarterView((v) => !v)} aria-pressed={quarterView}>
+            {quarterView ? 'Year view' : 'Quarter view'}
+          </button>
+        </div>
       </div>
 
       {error && <div className="horizon-inline-error">{error}</div>}
@@ -461,17 +471,11 @@ export function FiveYearHorizon() {
           ))}
 
           <svg className="horizon-connectors" aria-hidden="true">
-            <defs>
-              <marker id="horizon-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--indigo)" />
-              </marker>
-            </defs>
             {connectors.map((c) => (
               <path
                 key={c.key}
                 d={c.path}
                 className="horizon-connector-line"
-                markerEnd="url(#horizon-arrow)"
                 onClick={() => removeDependency(c.dep)}
               >
                 <title>Click to remove this link</title>

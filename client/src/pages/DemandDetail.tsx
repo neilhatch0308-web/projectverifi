@@ -100,6 +100,35 @@ export function DemandDetail() {
   }
   const [triageError, setTriageError] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [delivery, setDelivery] = useState<any>(null);
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [advancingMilestone, setAdvancingMilestone] = useState<string | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+
+  function loadDelivery() {
+    if (!id) return;
+    apiFetch(`/api/demands/${id}/delivery`)
+      .then(setDelivery)
+      .catch(() => {}); // 403 just means the viewer lacks delivery.view -- panel won't render for them anyway
+  }
+
+  async function advanceMilestone(milestone: string, notes?: string) {
+    if (!id) return;
+    setDeliveryError(null);
+    setAdvancingMilestone(milestone);
+    try {
+      const updated = await apiFetch(`/api/demands/${id}/delivery/advance`, {
+        method: 'POST',
+        body: JSON.stringify({ milestone, notes: notes || undefined }),
+      });
+      setDelivery(updated);
+      setDeliveryNotes('');
+    } catch (err) {
+      setDeliveryError(err instanceof Error ? err.message : 'Could not record this milestone.');
+    } finally {
+      setAdvancingMilestone(null);
+    }
+  }
   const [confidentialViewers, setConfidentialViewers] = useState<{
     named: { user_id: string; display_name: string; added_at: string; added_by_name: string | null }[];
     raci: Record<string, string | null> | null;
@@ -182,6 +211,7 @@ export function DemandDetail() {
   useEffect(load, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
   useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
+  useEffect(() => { if (demand?.status === 'promoted') loadDelivery(); }, [demand?.status]);
   useEffect(() => { if (demand?.confidential) loadConfidentialViewers(); }, [demand?.confidential]);
 
   async function assignSubPortfolio(subPortfolioId: string) {
@@ -819,6 +849,59 @@ export function DemandDetail() {
         <Link to={`/business-case/${demand.businessCaseId}`} className="btn btn--project" style={{ textDecoration: 'none' }}>
           View business case
         </Link>
+      )}
+
+      {demand.status === 'promoted' && (has('delivery.view') || has('delivery.edit')) && (
+        <div className="goal-card" style={{ marginTop: 16 }}>
+          <div className="goal-card__name" style={{ marginBottom: 10 }}>Delivery tracking</div>
+
+          {[
+            { key: 'delivery_started', label: 'Delivery started', atField: 'delivery_started_at', byField: 'delivery_started_by_name' },
+            { key: 'delivery_completed', label: 'Delivery complete', atField: 'delivery_completed_at', byField: 'delivery_completed_by_name' },
+            { key: 'adoption_measured', label: 'Adoption measured', atField: 'adoption_measured_at', byField: 'adoption_measured_by_name', hasNotes: true, noteField: 'adoption_notes' },
+            { key: 'benefit_realized', label: 'Benefit realised', atField: 'benefit_realized_at', byField: 'benefit_realized_by_name', hasNotes: true, noteField: 'benefit_realized_notes' },
+          ].map((m, i, arr) => {
+            const done = delivery?.[m.atField];
+            const prevDone = i === 0 || delivery?.[arr[i - 1].atField];
+            const canAdvance = has('delivery.edit') && !done && prevDone;
+            return (
+              <div key={m.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderTop: i > 0 ? '1px solid var(--hairline)' : undefined }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{m.label}</div>
+                  {done ? (
+                    <div className="goal-card__meta" style={{ marginTop: 2 }}>
+                      {delivery[m.byField]} &middot; {new Date(done).toLocaleDateString()}
+                      {m.hasNotes && delivery[m.noteField] && <div style={{ marginTop: 4 }}>{delivery[m.noteField]}</div>}
+                    </div>
+                  ) : (
+                    <div className="goal-card__meta" style={{ marginTop: 2, color: 'var(--muted)' }}>Not yet recorded</div>
+                  )}
+                </div>
+                {canAdvance && (
+                  <button
+                    onClick={() => advanceMilestone(m.key, m.hasNotes ? deliveryNotes : undefined)}
+                    disabled={advancingMilestone === m.key}
+                    className="btn btn--outline"
+                    style={{ fontSize: 11.5, padding: '4px 10px', flexShrink: 0 }}
+                  >
+                    {advancingMilestone === m.key ? 'Recording...' : 'Record'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {has('delivery.edit') && (
+            <input
+              type="text"
+              placeholder="Optional note for adoption/benefit milestones"
+              value={deliveryNotes}
+              onChange={(e) => setDeliveryNotes(e.target.value)}
+              style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginTop: 10 }}
+            />
+          )}
+          {deliveryError && <p className="login-error" style={{ marginTop: 8 }}>{deliveryError}</p>}
+        </div>
       )}
 
     </div>

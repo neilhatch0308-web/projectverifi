@@ -80,10 +80,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 // Submitter baseline. Use after requireAuth. A missing permission is a
 // 403, not a 404 - the resource exists, the caller just isn't allowed
 // to act on it, and hiding that distinction doesn't help anyone.
-export function requirePermission(key: string) {
+export function requirePermission(keyOrKeys: string | string[]) {
+  const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user?.permissions?.includes(key)) {
-      return res.status(403).json({ error: `Missing permission: ${key}` });
+    const has = req.user?.permissions ?? [];
+    if (!keys.some((k) => has.includes(k))) {
+      return res.status(403).json({ error: `Missing permission: ${keys.join(' or ')}` });
     }
     next();
   };

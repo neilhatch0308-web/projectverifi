@@ -56,7 +56,15 @@ router.get('/permissions', requireAuth, async (req, res) => {
   const { organizationId } = req.user!;
   try {
     const permissions = await withTenantContext(organizationId, async (client) => {
-      const result = await client.query(`SELECT key, label, description FROM permission ORDER BY key`);
+      // demand.view_confidential is retired (see migration 47) -- named
+      // viewers plus live-derived assignment now govern confidential
+      // demand access, not a role-wide permission. Excluded here rather
+      // than deleted from the catalog: a role that already has it
+      // ticked keeps the underlying row (see role_permission), this
+      // just stops it being shown or selectable going forward.
+      const result = await client.query(
+        `SELECT key, label, description FROM permission WHERE key != 'demand.view_confidential' ORDER BY key`
+      );
       return result.rows;
     });
     res.json(permissions);
@@ -415,7 +423,7 @@ router.get('/me/actions', requireAuth, async (req, res) => {
   try {
     const result = await withTenantContext(organizationId, async (client) => {
       const triageNeeded = await client.query(
-        `SELECT d.id, d.title, d.raised_date, p.name AS portfolio_name
+        `SELECT d.id, d.title, d.raised_date, d.confidential, p.name AS portfolio_name
          FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
          WHERE d.status = 'raised' AND $1
            AND (d.confidential = false OR can_view_confidential_demand(d.id, $2))
@@ -424,7 +432,7 @@ router.get('/me/actions', requireAuth, async (req, res) => {
       );
 
       const assessmentNeeded = await client.query(
-        `SELECT d.id, d.title, d.raised_date, p.name AS portfolio_name
+        `SELECT d.id, d.title, d.raised_date, d.confidential, p.name AS portfolio_name
          FROM demand d JOIN portfolio p ON p.id = d.portfolio_id
          WHERE d.status = 'accepted'
            AND (d.assigned_assessor_id = $1 OR (d.assigned_assessor_id IS NULL AND $2))

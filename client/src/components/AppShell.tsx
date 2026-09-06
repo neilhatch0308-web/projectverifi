@@ -18,10 +18,10 @@ const navGroups = [
     label: 'Organisation',
     items: [
       { to: '/demand', label: 'All demand' },
-      { to: '/planning', label: 'Annual planning', requires: 'planning.edit' },
+      { to: '/planning', label: 'Annual planning', requiresAny: ['planning.view', 'planning.edit'] },
       { to: '/horizon', label: 'Five-year horizon', requires: 'planning.edit' },
       { to: '/goals', label: 'Strategic goals' },
-      { to: '/budgets', label: 'Portfolio budgets', requires: 'budgets.manage' },
+      { to: '/budgets', label: 'Portfolio budgets', requiresAny: ['budgets.view', 'budgets.manage'] },
       { to: '/portfolio-admin', label: 'Portfolio config', requires: 'org.manage' },
       { to: '/governance-tiers', label: 'Governance tiers', requires: 'org.manage' },
     ],
@@ -29,7 +29,7 @@ const navGroups = [
   {
     label: 'Live projects',
     items: [
-      { to: '/projects', label: 'Active initiatives' },
+      { to: '/projects', label: 'Active initiatives', requiresAny: ['delivery.view', 'delivery.edit'] },
     ],
   },
   {
@@ -64,7 +64,11 @@ export function AppShell() {
         </Link>
 
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter((item) => !item.requires || has(item.requires));
+          const visibleItems = group.items.filter(
+            (item) =>
+              (!item.requires || has(item.requires)) &&
+              (!item.requiresAny || item.requiresAny.some((k) => has(k)))
+          );
           if (visibleItems.length === 0) return null;
           return (
             <div key={group.label} className="nav-group">

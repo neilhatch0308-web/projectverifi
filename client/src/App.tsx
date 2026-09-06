@@ -20,7 +20,7 @@ import { UserAdmin } from './pages/UserAdmin';
 import { PortfolioRollup } from './pages/PortfolioRollup';
 import { FiveYearHorizon } from './pages/FiveYearHorizon';
 import { MyHome } from './pages/MyHome';
-import { Profile } from './pages/Profile';
+import { ActiveInitiatives } from './pages/ActiveInitiatives';
 import { ComingSoon } from './pages/ComingSoon';
 import { IdleSessionGuard } from './components/IdleSessionGuard';
 
@@ -67,7 +67,6 @@ function App() {
               <Route element={<AppShell />}>
                 <Route index element={<Navigate to="/home" replace />} />
                 <Route path="/home" element={<MyHome />} />
-                <Route path="/profile" element={<Profile />} />
                 <Route path="/demand" element={<AllDemand />} />
                 <Route path="/demand/raise" element={<RaiseDemand />} />
                 <Route path="/demand/:id" element={<DemandDetail />} />
@@ -83,7 +82,7 @@ function App() {
                 <Route path="/roles" element={<RolesAdmin />} />
                 <Route path="/users" element={<UserAdmin />} />
                 <Route path="/portfolio" element={<PortfolioRollup />} />
-                <Route path="/projects" element={<ComingSoon title="Active Initiatives" />} />
+                <Route path="/projects" element={<ActiveInitiatives />} />
               </Route>
             </Routes>
           </AuthGate>

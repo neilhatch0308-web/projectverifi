@@ -169,7 +169,7 @@ router.get('/demands/horizon', requireAuth, requirePermission('planning.edit'), 
   try {
     const demands = await withTenantContext(organizationId, async (client) => {
       const { rows } = await client.query(
-        `SELECT d.id, d.title, d.status, d.date_driver_type,
+        `SELECT d.id, d.title, d.status, d.date_driver_type, d.confidential,
                 d.target_start_year, d.target_start_quarter,
                 d.target_end_year, d.target_end_quarter,
                 p.id AS portfolio_id, p.name AS portfolio_name,

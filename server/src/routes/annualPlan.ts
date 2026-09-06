@@ -8,7 +8,7 @@ const router = Router();
 
 // ---------- Get the current (latest) plan for a portfolio/year, creating
 // a fresh draft if none exists yet ----------
-router.get('/annual-plans/current', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+router.get('/annual-plans/current', requireAuth, requirePermission(['planning.view', 'planning.edit']), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const portfolioId = req.query.portfolioId as string;
   const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
@@ -46,7 +46,7 @@ router.get('/annual-plans/current', requireAuth, requirePermission('planning.edi
 });
 
 // ---------- Full board: envelope, totals, and demand grouped by column ----------
-router.get('/annual-plans/:id/board', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+router.get('/annual-plans/:id/board', requireAuth, requirePermission(['planning.view', 'planning.edit']), async (req, res) => {
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
@@ -93,7 +93,7 @@ router.get('/annual-plans/:id/board', requireAuth, requirePermission('planning.e
       // Eligible demand: assessed status, delivered by a sub-portfolio of
       // THIS parent, or still uncategorised but raised in THIS parent.
       const demandResult = await client.query(
-        `SELECT d.id, d.title, d.date_driver_type, d.date_driver_detail,
+        `SELECT d.id, d.title, d.date_driver_type, d.date_driver_detail, d.confidential,
                 d.complexity_tier, COALESCE(a.assessed_cost, d.claimed_cost) AS cost,
                 COALESCE(dpv.weighted_score, 0) AS weighted_score,
                 pi.column_placement, pi.reason AS deferred_reason,
@@ -356,7 +356,7 @@ router.post('/annual-plans/:id/revise', requireAuth, requirePermission('planning
 });
 
 // ---------- Version history for a portfolio/year ----------
-router.get('/annual-plans/history', requireAuth, requirePermission('planning.edit'), async (req, res) => {
+router.get('/annual-plans/history', requireAuth, requirePermission(['planning.view', 'planning.edit']), async (req, res) => {
   const { organizationId } = req.user!;
   const portfolioId = req.query.portfolioId as string;
   const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();

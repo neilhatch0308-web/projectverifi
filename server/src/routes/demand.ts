@@ -28,7 +28,14 @@ router.get('/demands', requireAuth, async (req, res) => {
                 p.id AS portfolio_id, p.name AS portfolio_name,
                 sub.id AS delivering_sub_portfolio_id, sub.name AS delivering_sub_portfolio_name,
                 COALESCE(pv.weighted_score, 0) AS weighted_score,
-                bc.id AS business_case_id, bc.decision AS business_case_decision
+                bc.id AS business_case_id, bc.decision AS business_case_decision,
+                CASE
+                  WHEN dd.benefit_realized_at IS NOT NULL THEN 'benefit_realized'
+                  WHEN dd.adoption_measured_at IS NOT NULL THEN 'adoption_measured'
+                  WHEN dd.delivery_completed_at IS NOT NULL THEN 'delivery_completed'
+                  WHEN dd.delivery_started_at IS NOT NULL THEN 'delivery_started'
+                  ELSE NULL
+                END AS delivery_stage
          FROM demand d
          JOIN portfolio p ON p.id = d.portfolio_id
          LEFT JOIN portfolio sub ON sub.id = d.delivering_sub_portfolio_id
@@ -36,6 +43,7 @@ router.get('/demands', requireAuth, async (req, res) => {
          LEFT JOIN demand_assessment a ON a.demand_id = d.id
          LEFT JOIN business_case bc ON bc.demand_id = d.id
          LEFT JOIN app_user assessor ON assessor.id = d.assigned_assessor_id
+         LEFT JOIN demand_delivery dd ON dd.demand_id = d.id
          WHERE d.confidential = false OR can_view_confidential_demand(d.id, $1)
          ORDER BY d.raised_date DESC`,
         [userId]

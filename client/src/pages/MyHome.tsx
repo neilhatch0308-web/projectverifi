@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { useAuth } from '../context/AuthContext';
+import { useHideConfidential } from '../lib/useHideConfidential';
+import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
+import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Demand {
   id: string;
@@ -12,6 +15,8 @@ interface Demand {
   portfolio_name: string;
   business_case_id: string | null;
   business_case_decision: string | null;
+  delivery_stage: 'delivery_started' | 'delivery_completed' | 'adoption_measured' | 'benefit_realized' | null;
+  confidential: boolean;
 }
 
 interface ActionItem {
@@ -19,6 +24,7 @@ interface ActionItem {
   title: string;
   raised_date: string;
   portfolio_name: string;
+  confidential: boolean;
 }
 
 interface Actions {
@@ -43,9 +49,7 @@ function DemandRow({ d }: { d: Demand }) {
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{d.portfolio_name}</div>
         </div>
         <span className="pill pill--muted" style={{ fontSize: 9.5, padding: '2px 6px', textTransform: 'capitalize' }}>
-          {d.status === 'promoted'
-            ? (d.business_case_decision && d.business_case_decision !== 'pending' ? d.business_case_decision : 'Business Case')
-            : (STATUS_LABELS[d.status] ?? d.status)}
+          {d.status === 'promoted' ? promotedDemandLabel(d) : (STATUS_LABELS[d.status] ?? d.status)}
         </span>
       </div>
     </Link>
@@ -60,7 +64,18 @@ function ActionRow({ item, actionLabel, to }: { item: ActionItem; actionLabel: s
         padding: '10px 12px', border: '1px solid var(--hairline)', borderRadius: 10, marginBottom: 8, fontSize: 13,
       }}>
         <div>
-          <div style={{ fontWeight: 600 }}>{item.title}</div>
+          <div style={{ fontWeight: 600 }}>
+            {item.title}
+            {item.confidential && (
+              <span
+                title="Confidential -- you're seeing this because you're the raiser, a named viewer, or currently assigned to it"
+                style={{
+                  display: 'inline-block', width: 9, height: 9, borderRadius: '50%',
+                  background: '#c22', marginLeft: 7, verticalAlign: 'middle',
+                }}
+              />
+            )}
+          </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
             {item.portfolio_name} &middot; raised {new Date(item.raised_date).toLocaleDateString()}
           </div>
@@ -93,7 +108,16 @@ export function MyHome() {
       .finally(() => setLoading(false));
   }, []);
 
-  const totalActions = actions.triageNeeded.length + actions.assessmentNeeded.length;
+  const { hideConfidential, setHideConfidential } = useHideConfidential();
+  const hasConfidential =
+    myDemand.some((d) => d.confidential) ||
+    actions.triageNeeded.some((a) => a.confidential) ||
+    actions.assessmentNeeded.some((a) => a.confidential);
+
+  const visibleTriage = actions.triageNeeded.filter((a) => !hideConfidential || !a.confidential);
+  const visibleAssessment = actions.assessmentNeeded.filter((a) => !hideConfidential || !a.confidential);
+  const visibleMyDemand = myDemand.filter((d) => !hideConfidential || !d.confidential);
+  const totalActions = visibleTriage.length + visibleAssessment.length;
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -102,9 +126,12 @@ export function MyHome() {
           <h1 className="page-title">{user?.email ? 'Welcome back' : 'My Home'}</h1>
           <p className="page-subtitle">What's yours to raise, watch, and action.</p>
         </div>
-        <Link to="/demand/raise" className="btn btn--project" style={{ textDecoration: 'none' }}>
-          + Raise demand
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ConfidentialityToggle hideConfidential={hideConfidential} onToggle={setHideConfidential} hasConfidential={hasConfidential} />
+          <Link to="/demand/raise" className="btn btn--project" style={{ textDecoration: 'none' }}>
+            + Raise demand
+          </Link>
+        </div>
       </div>
 
       {loading && <p>Loading...</p>}
@@ -119,19 +146,19 @@ export function MyHome() {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{totalActions}</span>
             </div>
 
-            {actions.triageNeeded.length > 0 && (
+            {visibleTriage.length > 0 && (
               <>
                 <div className="goal-card__meta" style={{ marginBottom: 6 }}>Needs triage</div>
-                {actions.triageNeeded.map((item) => (
+                {visibleTriage.map((item) => (
                   <ActionRow key={item.id} item={item} actionLabel="Triage" to={`/demand/${item.id}`} />
                 ))}
               </>
             )}
 
-            {actions.assessmentNeeded.length > 0 && (
+            {visibleAssessment.length > 0 && (
               <>
                 <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 6 }}>Needs P75 assessment</div>
-                {actions.assessmentNeeded.map((item) => (
+                {visibleAssessment.map((item) => (
                   <ActionRow key={item.id} item={item} actionLabel="Assess" to={`/demand/${item.id}/assess`} />
                 ))}
               </>
@@ -146,11 +173,11 @@ export function MyHome() {
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: 0 }}>My Demand</h2>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{myDemand.length}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{visibleMyDemand.length}</span>
             </div>
 
-            {myDemand.length > 0 ? (
-              myDemand.map((d) => <DemandRow key={d.id} d={d} />)
+            {visibleMyDemand.length > 0 ? (
+              visibleMyDemand.map((d) => <DemandRow key={d.id} d={d} />)
             ) : (
               <p style={{ fontSize: 13, color: 'var(--muted)' }}>
                 You haven't raised any demand yet.{' '}

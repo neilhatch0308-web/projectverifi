@@ -16,7 +16,7 @@ const router = Router();
 // annual plan version actually has committed to the budget column for
 // that portfolio/year (annual_plan_totals). If planning moves, Current
 // moves with it automatically; nothing here needs to keep it in sync.
-router.get('/portfolio-budgets', requireAuth, requirePermission('budgets.manage'), async (req, res) => {
+router.get('/portfolio-budgets', requireAuth, requirePermission(['budgets.view', 'budgets.manage']), async (req, res) => {
   const { organizationId } = req.user!;
   const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
 
@@ -169,7 +169,7 @@ router.patch('/portfolio-budgets/assigned', requireAuth, requirePermission('budg
 // year is optional here, deliberately - the history filter on the
 // frontend needs to search across years, not just whichever one the
 // budget table above happens to be showing.
-router.get('/portfolio-budgets/adjustments', requireAuth, requirePermission('budgets.manage'), async (req, res) => {
+router.get('/portfolio-budgets/adjustments', requireAuth, requirePermission(['budgets.view', 'budgets.manage']), async (req, res) => {
   const { organizationId } = req.user!;
   const year = req.query.year ? Number(req.query.year) : null;
 
@@ -203,7 +203,7 @@ router.get('/portfolio-budgets/adjustments', requireAuth, requirePermission('bud
 // there is deliberately no POST endpoint for this anymore - but
 // historical rows, if any exist, are never deleted and stay readable
 // here for audit purposes. year is optional, same reasoning as above.
-router.get('/portfolio-budgets/transfers', requireAuth, requirePermission('budgets.manage'), async (req, res) => {
+router.get('/portfolio-budgets/transfers', requireAuth, requirePermission(['budgets.view', 'budgets.manage']), async (req, res) => {
   const { organizationId } = req.user!;
   const year = req.query.year ? Number(req.query.year) : null;
 

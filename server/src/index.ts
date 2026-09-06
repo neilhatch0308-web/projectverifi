@@ -14,6 +14,7 @@ import annualPlanRouter from './routes/annualPlan';
 import governanceRouter from './routes/governance';
 import targetYearRouter from './routes/target-year-routes';
 import draftsRouter from './routes/drafts';
+import deliveryRouter from './routes/delivery';
 import passwordResetRouter from './routes/passwordReset';
 
 dotenv.config();
@@ -47,6 +48,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use('/api', targetYearRouter); // must come before demandRouter -- /demands/horizon would otherwise be caught by demand.ts's /demands/:id and treated as an invalid demand id
+app.use('/api', deliveryRouter); // same reason -- /demands/active-initiatives would otherwise be caught by /demands/:id
 app.use('/api', demandRouter);
 app.use('/api', strategicGoalsRouter);
 app.use('/api', portfolioRouter);
