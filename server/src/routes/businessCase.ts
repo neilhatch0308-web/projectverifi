@@ -30,6 +30,51 @@ async function assertCanAccessBusinessCase(client: any, businessCaseId: string |
   return row.demand_id;
 }
 
+// ---------- Post-approval revision logging ----------
+// Once a business case is decided (approved), requested_spend,
+// approved_amount, the benefit register, and new risks stop being
+// freely editable -- see 54_business_case_revision.sql. This doesn't
+// block the change; it requires a reason and logs it. Returns the
+// business case's current decision so callers can branch on it, and
+// throws a typed error the route handlers turn into a 400 if a reason
+// was required but missing.
+class RevisionReasonRequiredError extends Error {}
+
+async function getBusinessCaseDecision(client: any, businessCaseId: string | string[]): Promise<string> {
+  const idParam = Array.isArray(businessCaseId) ? businessCaseId[0] : businessCaseId;
+  const result = await client.query(`SELECT decision FROM business_case WHERE id = $1`, [idParam]);
+  return result.rows[0]?.decision ?? 'pending';
+}
+
+async function logRevisionIfApproved(
+  client: any,
+  organizationId: string,
+  businessCaseId: string | string[],
+  userId: string,
+  field: 'requested_spend' | 'approved_amount' | 'benefit_added' | 'benefit_edited' | 'risk_added',
+  reason: string | undefined,
+  priorValue: unknown,
+  newValue: unknown,
+  referenceId?: string
+): Promise<void> {
+  const idParam = Array.isArray(businessCaseId) ? businessCaseId[0] : businessCaseId;
+  const decision = await getBusinessCaseDecision(client, idParam);
+  if (decision !== 'approved') return; // Still being built -- free editing, nothing to log.
+
+  if (!reason || !reason.trim()) {
+    throw new RevisionReasonRequiredError(
+      'This business case is approved. A reason is required to make this change, and it will be logged.'
+    );
+  }
+
+  await client.query(
+    `INSERT INTO business_case_revision
+       (id, organization_id, business_case_id, field, reference_id, prior_value, new_value, reason, changed_by)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)`,
+    [organizationId, idParam, field, referenceId ?? null, JSON.stringify(priorValue), JSON.stringify(newValue), reason, userId]
+  );
+}
+
 // ---------- Governance requirements (cumulative, cost-tiered) ----------
 // Every tier whose min_threshold <= spend contributes its added_approvers
 // and added_documents to the effective set - see 31_governance_tiers_and_
@@ -223,7 +268,7 @@ router.patch('/business-cases/:id/narrative', requireAuth, requirePermission('bu
 });
 
 // ---------- Set requested spend ----------
-const requestedSpendSchema = z.object({ requestedSpend: z.number().min(0) });
+const requestedSpendSchema = z.object({ requestedSpend: z.number().min(0), reason: z.string().optional() });
 
 router.patch('/business-cases/:id/requested-spend', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
   const parsed = requestedSpendSchema.safeParse(req.body);
@@ -237,6 +282,11 @@ router.patch('/business-cases/:id/requested-spend', requireAuth, requirePermissi
       const canAccess = await assertCanAccessBusinessCase(client, id, userId);
       if (!canAccess) return null;
 
+      const before = await client.query(`SELECT requested_spend FROM business_case WHERE id = $1`, [id]);
+      const priorValue = before.rows[0]?.requested_spend ?? null;
+
+      await logRevisionIfApproved(client, organizationId, id, userId, 'requested_spend', parsed.data.reason, priorValue, parsed.data.requestedSpend);
+
       const result = await client.query(
         `UPDATE business_case SET requested_spend = $1 WHERE id = $2 RETURNING id, requested_spend`,
         [parsed.data.requestedSpend, id]
@@ -247,6 +297,7 @@ router.patch('/business-cases/:id/requested-spend', requireAuth, requirePermissi
     if (!updated) return res.status(404).json({ error: 'Business case not found' });
     res.json(updated);
   } catch (err) {
+    if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
     console.error('Failed to update requested spend:', err);
     res.status(500).json({ error: 'Failed to update requested spend' });
   }
@@ -256,19 +307,27 @@ router.patch('/business-cases/:id/requested-spend', requireAuth, requirePermissi
 const investmentSchema = z.object({
   approvedAmount: z.number().min(0).optional(),
   actualSpendToDate: z.number().min(0).optional(),
+  reason: z.string().optional(),
 });
 
 router.put('/business-cases/:id/investment', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
   const parsed = investmentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { approvedAmount, actualSpendToDate } = parsed.data;
+  const { approvedAmount, actualSpendToDate, reason } = parsed.data;
 
   try {
     const investment = await withTenantContext(organizationId, async (client) => {
-      const existing = await client.query(`SELECT business_case_id FROM investment WHERE business_case_id = $1`, [id]);
+      const existing = await client.query(`SELECT business_case_id, approved_amount FROM investment WHERE business_case_id = $1`, [id]);
+
+      // approved_amount is the anchored baseline -- only log a revision
+      // when it's actually changing (not just re-sending the same
+      // value, and not the very first time it's ever set).
+      if (existing.rows.length > 0 && approvedAmount !== undefined && Number(existing.rows[0].approved_amount) !== approvedAmount) {
+        await logRevisionIfApproved(client, organizationId, id, userId, 'approved_amount', reason, existing.rows[0].approved_amount, approvedAmount);
+      }
 
       if (existing.rows.length > 0) {
         const result = await client.query(
@@ -293,6 +352,7 @@ router.put('/business-cases/:id/investment', requireAuth, requirePermission('bus
 
     res.json(investment);
   } catch (err) {
+    if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
     console.error('Failed to update investment:', err);
     res.status(500).json({ error: 'Failed to update investment' });
   }
@@ -306,6 +366,7 @@ const addBenefitSchema = z.object({
   ownerUserId: looseUuid(),
   recurrence: z.enum(['one_time', 'annual', 'multi_year_lump_sum']),
   durationYears: z.number().int().positive().optional(),
+  reason: z.string().optional(),
 }).refine(
   (data) => (data.recurrence === 'one_time') === (data.durationYears === undefined),
   { message: 'duration_years is required for annual/multi_year_lump_sum and must be omitted for one_time.' }
@@ -317,7 +378,7 @@ router.post('/business-cases/:id/benefits', requireAuth, requirePermission('busi
 
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { title, benefitType, claimedValue, ownerUserId, recurrence, durationYears } = parsed.data;
+  const { title, benefitType, claimedValue, ownerUserId, recurrence, durationYears, reason } = parsed.data;
 
   try {
     const benefit = await withTenantContext(organizationId, async (client) => {
@@ -330,12 +391,20 @@ router.post('/business-cases/:id/benefits', requireAuth, requirePermission('busi
          RETURNING id, title, benefit_type, claimed_value, status, recurrence, duration_years`,
         [id, title, benefitType, claimedValue ?? null, ownerUserId, recurrence, durationYears ?? null]
       );
-      return result.rows[0];
+      const row = result.rows[0];
+
+      // A new benefit added after approval is net-new scope on an
+      // already-decided case -- always worth a reason, not just a
+      // value change, so this logs on the insert itself.
+      await logRevisionIfApproved(client, organizationId, id, userId, 'benefit_added', reason, null, row, row.id);
+
+      return row;
     });
 
     if (!benefit) return res.status(404).json({ error: 'Business case not found' });
     res.status(201).json(benefit);
   } catch (err) {
+    if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
     console.error('Failed to add benefit:', err);
     res.status(500).json({ error: 'Failed to add benefit' });
   }
@@ -351,6 +420,7 @@ const editBenefitSchema = z.object({
   claimedValue: z.number().optional(),
   recurrence: z.enum(['one_time', 'annual', 'multi_year_lump_sum']).optional(),
   durationYears: z.number().int().positive().nullable().optional(),
+  reason: z.string().optional(),
 }).refine(
   (data) => {
     if (!data.recurrence) return true; // not changing recurrence -- duration_years handled independently
@@ -365,12 +435,20 @@ router.patch('/business-cases/:id/benefits/:benefitId', requireAuth, requirePerm
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const { organizationId, userId } = req.user!;
-  const { title, claimedValue, recurrence, durationYears } = parsed.data;
+  const { title, claimedValue, recurrence, durationYears, reason } = parsed.data;
 
   try {
     const benefit = await withTenantContext(organizationId, async (client) => {
       const canAccess = await assertCanAccessBusinessCase(client, id, userId);
       if (!canAccess) return null;
+
+      const before = await client.query(
+        `SELECT title, claimed_value, recurrence, duration_years FROM benefit WHERE id = $1 AND business_case_id = $2`,
+        [benefitId, id]
+      );
+      if (before.rows.length === 0) return null;
+
+      await logRevisionIfApproved(client, organizationId, id, userId, 'benefit_edited', reason, before.rows[0], parsed.data, Array.isArray(benefitId) ? benefitId[0] : benefitId);
 
       const result = await client.query(
         `UPDATE benefit SET
@@ -389,6 +467,7 @@ router.patch('/business-cases/:id/benefits/:benefitId', requireAuth, requirePerm
     if (!benefit) return res.status(404).json({ error: 'Benefit not found' });
     res.json(benefit);
   } catch (err) {
+    if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
     console.error('Failed to update benefit:', err);
     res.status(500).json({ error: 'Failed to update benefit' });
   }
@@ -402,6 +481,7 @@ const addRiskSchema = z.object({
   impact: z.enum(['low', 'medium', 'high']),
   mitigation: z.string().optional(),
   ownerUserId: looseUuid().optional(),
+  reason: z.string().optional(),
 });
 
 router.post('/business-cases/:id/risks', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
@@ -410,7 +490,7 @@ router.post('/business-cases/:id/risks', requireAuth, requirePermission('busines
 
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
-  const { description, category, likelihood, impact, mitigation, ownerUserId } = parsed.data;
+  const { description, category, likelihood, impact, mitigation, ownerUserId, reason } = parsed.data;
 
   try {
     const risk = await withTenantContext(organizationId, async (client) => {
@@ -424,12 +504,17 @@ router.post('/business-cases/:id/risks', requireAuth, requirePermission('busines
          RETURNING id, description, category, likelihood, impact, mitigation, status, created_at`,
         [id, description, category, likelihood, impact, mitigation ?? null, ownerUserId ?? null, userId]
       );
-      return result.rows[0];
+      const row = result.rows[0];
+
+      await logRevisionIfApproved(client, organizationId, id, userId, 'risk_added', reason, null, row, row.id);
+
+      return row;
     });
 
     if (!risk) return res.status(404).json({ error: 'Business case not found' });
     res.status(201).json(risk);
   } catch (err) {
+    if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
     console.error('Failed to add risk:', err);
     res.status(500).json({ error: 'Failed to add risk' });
   }
@@ -475,14 +560,27 @@ router.patch('/business-cases/:id/risks/:riskId', requireAuth, requirePermission
 });
 
 // ---------- Risk register: delete ----------
+// Blocked outright once the business case is approved -- not a
+// tracked-with-reason path like the others, since deleting a risk
+// that was part of the decided case would remove it from the record
+// entirely rather than just changing it. Close it via status instead.
 router.delete('/business-cases/:id/risks/:riskId', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
   const { organizationId } = req.user!;
-  const { riskId } = req.params;
+  const { id, riskId } = req.params;
 
   try {
-    await withTenantContext(organizationId, async (client) => {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const decision = await getBusinessCaseDecision(client, id);
+      if (decision === 'approved') {
+        return { blocked: true as const };
+      }
       await client.query(`DELETE FROM business_case_risk WHERE id = $1`, [riskId]);
+      return { blocked: false as const };
     });
+
+    if (result.blocked) {
+      return res.status(409).json({ error: 'Risks cannot be deleted once the business case is approved. Set its status to closed instead.' });
+    }
     res.status(200).json({ deleted: true });
   } catch (err) {
     console.error('Failed to delete risk:', err);
@@ -490,6 +588,40 @@ router.delete('/business-cases/:id/risks/:riskId', requireAuth, requirePermissio
   }
 });
 
+
+// ---------- Revision history ----------
+// Everything logged by logRevisionIfApproved, newest first. This is
+// the only place these tracked changes are visible -- without it,
+// requiring a reason would just be friction with nothing to show for
+// it afterward.
+router.get('/business-cases/:id/revisions', requireAuth, requirePermission('business_case.view'), async (req, res) => {
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const revisions = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
+      const result = await client.query(
+        `SELECT r.id, r.field, r.reference_id, r.prior_value, r.new_value, r.reason, r.changed_at,
+                u.display_name AS changed_by_name
+           FROM business_case_revision r
+           LEFT JOIN app_user u ON u.id = r.changed_by
+          WHERE r.business_case_id = $1
+          ORDER BY r.changed_at DESC`,
+        [id]
+      );
+      return result.rows;
+    });
+
+    if (revisions === null) return res.status(404).json({ error: 'Business case not found' });
+    res.json(revisions);
+  } catch (err) {
+    console.error('Failed to fetch revision history:', err);
+    res.status(500).json({ error: 'Failed to fetch revision history' });
+  }
+});
 
 // ---------- Finance Impact Assessment: upsert ----------
 const fiaSchema = z.object({

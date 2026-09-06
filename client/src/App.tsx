@@ -21,7 +21,6 @@ import { PortfolioRollup } from './pages/PortfolioRollup';
 import { FiveYearHorizon } from './pages/FiveYearHorizon';
 import { MyHome } from './pages/MyHome';
 import { ActiveInitiatives } from './pages/ActiveInitiatives';
-import { ComingSoon } from './pages/ComingSoon';
 import { IdleSessionGuard } from './components/IdleSessionGuard';
 
 // Sends the user to My Home on every genuine sign-in - not just when

@@ -104,6 +104,15 @@ export function DemandDetail() {
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [advancingMilestone, setAdvancingMilestone] = useState<string | null>(null);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  // Per-milestone input state. Each field only applies to one
+  // milestone's form -- kept separate rather than one generic payload
+  // now that the four milestones no longer share a shape.
+  const [recordedDate, setRecordedDate] = useState('');
+  const [plannedEndDate, setPlannedEndDate] = useState('');
+  const [actualCost, setActualCost] = useState('');
+  const [adoptionLevel, setAdoptionLevel] = useState('');
+  const [actualBenefitValue, setActualBenefitValue] = useState('');
+  const [attributionConfidence, setAttributionConfidence] = useState('');
 
   function loadDelivery() {
     if (!id) return;
@@ -112,17 +121,44 @@ export function DemandDetail() {
       .catch(() => {}); // 403 just means the viewer lacks delivery.view -- panel won't render for them anyway
   }
 
-  async function advanceMilestone(milestone: string, notes?: string) {
-    if (!id) return;
+  async function advanceMilestone(milestone: string) {
+    if (!id || !recordedDate) {
+      setDeliveryError('Pick a date before recording this milestone.');
+      return;
+    }
     setDeliveryError(null);
     setAdvancingMilestone(milestone);
     try {
+      let body: Record<string, unknown> = { milestone, recordedDate };
+      if (milestone === 'delivery_started') {
+        if (!plannedEndDate) { setDeliveryError('Planned end date is required.'); setAdvancingMilestone(null); return; }
+        body.plannedEndDate = plannedEndDate;
+      } else if (milestone === 'delivery_completed') {
+        if (!actualCost) { setDeliveryError('Actual cost is required.'); setAdvancingMilestone(null); return; }
+        body.actualCost = Number(actualCost);
+      } else if (milestone === 'adoption_measured') {
+        if (!adoptionLevel) { setDeliveryError('Adoption level is required.'); setAdvancingMilestone(null); return; }
+        body.adoptionLevel = adoptionLevel;
+        if (deliveryNotes) body.notes = deliveryNotes;
+      } else if (milestone === 'benefit_realized') {
+        if (!actualBenefitValue || !attributionConfidence) { setDeliveryError('Actual benefit value and attribution confidence are required.'); setAdvancingMilestone(null); return; }
+        body.actualBenefitValue = Number(actualBenefitValue);
+        body.attributionConfidence = attributionConfidence;
+        if (deliveryNotes) body.notes = deliveryNotes;
+      }
+
       const updated = await apiFetch(`/api/demands/${id}/delivery/advance`, {
         method: 'POST',
-        body: JSON.stringify({ milestone, notes: notes || undefined }),
+        body: JSON.stringify(body),
       });
       setDelivery(updated);
       setDeliveryNotes('');
+      setRecordedDate('');
+      setPlannedEndDate('');
+      setActualCost('');
+      setAdoptionLevel('');
+      setActualBenefitValue('');
+      setAttributionConfidence('');
     } catch (err) {
       setDeliveryError(err instanceof Error ? err.message : 'Could not record this milestone.');
     } finally {
@@ -851,58 +887,161 @@ export function DemandDetail() {
         </Link>
       )}
 
-      {demand.status === 'promoted' && (has('delivery.view') || has('delivery.edit')) && (
-        <div className="goal-card" style={{ marginTop: 16 }}>
-          <div className="goal-card__name" style={{ marginBottom: 10 }}>Delivery tracking</div>
+      {demand.status === 'promoted' && (has('delivery.view') || has('delivery.edit')) && (() => {
+        const inputStyle = { width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginTop: 6 };
+        const labelStyle = { fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'block' };
+        const money = (v: any) => v === null || v === undefined ? null : `£${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+        const milestones = [
+          { key: 'delivery_started', label: 'Delivery started', atField: 'delivery_started_at', byField: 'delivery_started_by_name' },
+          { key: 'delivery_completed', label: 'Delivery complete', atField: 'delivery_completed_at', byField: 'delivery_completed_by_name' },
+          { key: 'adoption_measured', label: 'Adoption measured', atField: 'adoption_measured_at', byField: 'adoption_measured_by_name' },
+          { key: 'benefit_realized', label: 'Benefit realised', atField: 'benefit_realized_at', byField: 'benefit_realized_by_name' },
+        ];
+        return (
+          <div className="goal-card" style={{ marginTop: 16 }}>
+            <div className="goal-card__name" style={{ marginBottom: 10 }}>Delivery tracking</div>
 
-          {[
-            { key: 'delivery_started', label: 'Delivery started', atField: 'delivery_started_at', byField: 'delivery_started_by_name' },
-            { key: 'delivery_completed', label: 'Delivery complete', atField: 'delivery_completed_at', byField: 'delivery_completed_by_name' },
-            { key: 'adoption_measured', label: 'Adoption measured', atField: 'adoption_measured_at', byField: 'adoption_measured_by_name', hasNotes: true, noteField: 'adoption_notes' },
-            { key: 'benefit_realized', label: 'Benefit realised', atField: 'benefit_realized_at', byField: 'benefit_realized_by_name', hasNotes: true, noteField: 'benefit_realized_notes' },
-          ].map((m, i, arr) => {
-            const done = delivery?.[m.atField];
-            const prevDone = i === 0 || delivery?.[arr[i - 1].atField];
-            const canAdvance = has('delivery.edit') && !done && prevDone;
-            return (
-              <div key={m.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderTop: i > 0 ? '1px solid var(--hairline)' : undefined }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{m.label}</div>
-                  {done ? (
-                    <div className="goal-card__meta" style={{ marginTop: 2 }}>
-                      {delivery[m.byField]} &middot; {new Date(done).toLocaleDateString()}
-                      {m.hasNotes && delivery[m.noteField] && <div style={{ marginTop: 4 }}>{delivery[m.noteField]}</div>}
+            {delivery?.needed_by_date && (
+              <div className="goal-card__meta" style={{ marginBottom: 10 }}>
+                Needed by (from submission): {new Date(delivery.needed_by_date).toLocaleDateString()}
+              </div>
+            )}
+
+            {milestones.map((m, i, arr) => {
+              const done = delivery?.[m.atField];
+              const prevDone = i === 0 || delivery?.[arr[i - 1].atField];
+              const canAdvance = has('delivery.edit') && !done && prevDone;
+              return (
+                <div key={m.key} style={{ padding: '8px 0', borderTop: i > 0 ? '1px solid var(--hairline)' : undefined }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.label}</div>
+                      {done ? (
+                        <div className="goal-card__meta" style={{ marginTop: 2 }}>
+                          {delivery[m.byField]} &middot; {new Date(done).toLocaleDateString()}
+
+                          {m.key === 'delivery_started' && delivery.planned_end_date && (
+                            <div>Planned end: {new Date(delivery.planned_end_date).toLocaleDateString()}</div>
+                          )}
+                          {m.key === 'delivery_completed' && (
+                            <>
+                              {delivery.date_variance_days !== null && delivery.date_variance_days !== undefined && (
+                                <div>Date variance: {delivery.date_variance_days > 0 ? `${delivery.date_variance_days} days late` : delivery.date_variance_days < 0 ? `${Math.abs(delivery.date_variance_days)} days early` : 'On planned date'}</div>
+                              )}
+                              {delivery.actual_cost !== null && (
+                                <div>
+                                  Cost: {money(delivery.actual_cost)}
+                                  {delivery.signed_off_budget !== null && ` of ${money(delivery.signed_off_budget)} signed off`}
+                                  {delivery.cost_variance_amount !== null && delivery.cost_variance_amount !== undefined && (
+                                    <> ({Number(delivery.cost_variance_amount) > 0 ? 'over' : Number(delivery.cost_variance_amount) < 0 ? 'under' : 'on'} budget{Number(delivery.cost_variance_amount) !== 0 ? ` by ${money(Math.abs(Number(delivery.cost_variance_amount)))}` : ''})</>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {m.key === 'adoption_measured' && delivery.adoption_level && (
+                            <div>Level: {delivery.adoption_level.replace('_', ' ')}</div>
+                          )}
+                          {m.key === 'adoption_measured' && delivery.adoption_notes && <div style={{ marginTop: 4 }}>{delivery.adoption_notes}</div>}
+                          {m.key === 'benefit_realized' && (
+                            <>
+                              {delivery.actual_benefit_value !== null && (
+                                <div>
+                                  Actual benefit: {money(delivery.actual_benefit_value)}
+                                  {delivery.claimed_business_case_benefit !== null && ` vs ${money(delivery.claimed_business_case_benefit)} claimed`}
+                                  {delivery.benefit_variance_pct !== null && delivery.benefit_variance_pct !== undefined && (
+                                    <> ({Number(delivery.benefit_variance_pct) > 0 ? '+' : ''}{delivery.benefit_variance_pct}%)</>
+                                  )}
+                                </div>
+                              )}
+                              {delivery.benefit_attribution_confidence && <div>Attribution confidence: {delivery.benefit_attribution_confidence}</div>}
+                              {delivery.benefit_realized_notes && <div style={{ marginTop: 4 }}>{delivery.benefit_realized_notes}</div>}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="goal-card__meta" style={{ marginTop: 2, color: 'var(--muted)' }}>
+                          Not yet recorded
+                          {m.key === 'delivery_completed' && delivery?.signed_off_budget !== null && delivery?.signed_off_budget !== undefined && (
+                            <div>Signed off budget: {money(delivery.signed_off_budget)}</div>
+                          )}
+                          {m.key === 'benefit_realized' && delivery?.claimed_business_case_benefit !== null && delivery?.claimed_business_case_benefit !== undefined && (
+                            <div>Claimed at business case: {money(delivery.claimed_business_case_benefit)}</div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="goal-card__meta" style={{ marginTop: 2, color: 'var(--muted)' }}>Not yet recorded</div>
+                  </div>
+
+                  {canAdvance && (
+                    <div style={{ marginTop: 8 }}>
+                      <label style={labelStyle}>
+                        {m.key === 'delivery_started' ? 'Start date' : m.key === 'delivery_completed' ? 'Delivered date' : m.key === 'adoption_measured' ? 'Adoption date' : 'Benefit realised date'}
+                      </label>
+                      <input type="date" value={recordedDate} onChange={(e) => setRecordedDate(e.target.value)} style={inputStyle} />
+
+                      {m.key === 'delivery_started' && (
+                        <>
+                          <label style={labelStyle}>Planned end date</label>
+                          <input type="date" value={plannedEndDate} onChange={(e) => setPlannedEndDate(e.target.value)} style={inputStyle} />
+                        </>
+                      )}
+
+                      {m.key === 'delivery_completed' && (
+                        <>
+                          <label style={labelStyle}>Actual cost (£)</label>
+                          <input type="number" min="0" step="0.01" value={actualCost} onChange={(e) => setActualCost(e.target.value)} style={inputStyle} />
+                        </>
+                      )}
+
+                      {m.key === 'adoption_measured' && (
+                        <>
+                          <label style={labelStyle}>Adoption level</label>
+                          <select value={adoptionLevel} onChange={(e) => setAdoptionLevel(e.target.value)} style={inputStyle}>
+                            <option value="">Select...</option>
+                            <option value="not_adopted">Not adopted</option>
+                            <option value="partial">Partial</option>
+                            <option value="full">Full</option>
+                          </select>
+                          <label style={labelStyle}>Notes (optional)</label>
+                          <input type="text" value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} style={inputStyle} />
+                        </>
+                      )}
+
+                      {m.key === 'benefit_realized' && (
+                        <>
+                          <label style={labelStyle}>Actual benefit value (£)</label>
+                          <input type="number" step="0.01" value={actualBenefitValue} onChange={(e) => setActualBenefitValue(e.target.value)} style={inputStyle} />
+                          <label style={labelStyle}>Attribution confidence</label>
+                          <select value={attributionConfidence} onChange={(e) => setAttributionConfidence(e.target.value)} style={inputStyle}>
+                            <option value="">Select...</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                          </select>
+                          <label style={labelStyle}>Notes (optional)</label>
+                          <input type="text" value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} style={inputStyle} />
+                        </>
+                      )}
+
+                      <button
+                        onClick={() => advanceMilestone(m.key)}
+                        disabled={advancingMilestone === m.key}
+                        className="btn btn--outline"
+                        style={{ fontSize: 11.5, padding: '4px 10px', marginTop: 8 }}
+                      >
+                        {advancingMilestone === m.key ? 'Recording...' : 'Record'}
+                      </button>
+                    </div>
                   )}
                 </div>
-                {canAdvance && (
-                  <button
-                    onClick={() => advanceMilestone(m.key, m.hasNotes ? deliveryNotes : undefined)}
-                    disabled={advancingMilestone === m.key}
-                    className="btn btn--outline"
-                    style={{ fontSize: 11.5, padding: '4px 10px', flexShrink: 0 }}
-                  >
-                    {advancingMilestone === m.key ? 'Recording...' : 'Record'}
-                  </button>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
 
-          {has('delivery.edit') && (
-            <input
-              type="text"
-              placeholder="Optional note for adoption/benefit milestones"
-              value={deliveryNotes}
-              onChange={(e) => setDeliveryNotes(e.target.value)}
-              style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginTop: 10 }}
-            />
-          )}
-          {deliveryError && <p className="login-error" style={{ marginTop: 8 }}>{deliveryError}</p>}
-        </div>
-      )}
+            {deliveryError && <p className="login-error" style={{ marginTop: 8 }}>{deliveryError}</p>}
+          </div>
+        );
+      })()}
 
     </div>
   );
