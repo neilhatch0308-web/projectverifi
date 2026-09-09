@@ -836,55 +836,177 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${fileSafeTitle}-summary.pdf"`);
 
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ margin: 56, size: 'A4', bufferPages: true });
     doc.pipe(res);
 
-    // ---------- Header ----------
-    doc.fontSize(18).font('Helvetica-Bold').text(bc.title ?? 'Business Case');
-    doc.moveDown(0.2);
-    doc.fontSize(10).font('Helvetica').fillColor('#666')
-      .text([bc.portfolio_name, bc.sponsor_name && `Sponsor: ${bc.sponsor_name}`, bc.submitted_by_name && `Submitted by: ${bc.submitted_by_name}`]
-        .filter(Boolean).join('   |   '));
-    doc.fillColor('#000');
-    if (bc.decision) {
-      doc.moveDown(0.3);
-      doc.fontSize(10).font('Helvetica-Bold')
-        .text(`Decision: ${bc.decision.toUpperCase()}${bc.decision_date ? ` on ${new Date(bc.decision_date).toLocaleDateString()}` : ''}`);
+    // ---------- Brand palette (matches we-verifi-brand.css) ----------
+    // No font files are bundled with the server, so this stays on
+    // Helvetica/Helvetica-Bold rather than the app's actual Space
+    // Grotesk/Inter typefaces -- embedding those would mean shipping
+    // the .ttf files alongside the server and registering them via
+    // doc.registerFont(). Worth doing if brand-accurate typography in
+    // this export matters enough to add that asset; colors don't have
+    // that constraint, so they're applied directly below.
+    const COLOR = {
+      graphite: '#14161C',
+      muted: '#606677',
+      hairline: '#DADFE8',
+      teal: '#0E8F82',      // darkened slightly from the UI's #17C3B2 for print contrast
+      indigo: '#5B5FEF',
+      cloud: '#F4F5F8',
+      approved: '#0E8F62',
+      declined: '#B03A3A',
+    };
+    const PAGE_WIDTH = doc.page.width;
+    const MARGIN = 56;
+    const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+
+    function divider(spaceBefore = 14, spaceAfter = 14) {
+      doc.moveDown(spaceBefore / 12);
+      const y = doc.y;
+      doc.save().strokeColor(COLOR.hairline).lineWidth(1)
+        .moveTo(MARGIN, y).lineTo(MARGIN + CONTENT_WIDTH, y).stroke().restore();
+      doc.y = y + spaceAfter / 12;
     }
-    doc.moveDown(1);
 
     function sectionHeading(text: string) {
-      doc.moveDown(0.6);
-      doc.fontSize(13).font('Helvetica-Bold').text(text);
-      doc.moveDown(0.2);
-      doc.fontSize(10).font('Helvetica');
+      divider(16, 6);
+      // A short teal accent bar to the left of each heading, echoing
+      // the app's own left-accent convention on cards, rather than a
+      // heading that's just bigger black text with nothing else.
+      const y = doc.y;
+      doc.save().rect(MARGIN, y + 2, 4, 14).fill(COLOR.teal).restore();
+      doc.fontSize(13).font('Helvetica-Bold').fillColor(COLOR.graphite)
+        .text(text, MARGIN + 12, y, { width: CONTENT_WIDTH - 12 });
+      doc.moveDown(0.5);
+      doc.fontSize(10).font('Helvetica').fillColor(COLOR.graphite);
     }
+
+    // A label:value grid, two columns -- used for RACI and governance
+    // instead of five/six stacked single-value lines, which was the
+    // single biggest contributor to this report reading as cramped.
+    // pdfkit has no grid primitive, so row height is measured before
+    // advancing to the next row, so wrapped values never overlap.
+    function keyValueGrid(pairs: Array<[string, string]>, columns = 2) {
+      const colWidth = CONTENT_WIDTH / columns;
+      let cursorY = doc.y;
+      for (let i = 0; i < pairs.length; i += columns) {
+        const rowPairs = pairs.slice(i, i + columns);
+        let rowHeight = 0;
+        rowPairs.forEach(([label, value], col) => {
+          const x = MARGIN + col * colWidth;
+          doc.font('Helvetica').fontSize(8.5).fillColor(COLOR.muted)
+            .text(label.toUpperCase(), x, cursorY, { width: colWidth - 14 });
+          const labelHeight = doc.heightOfString(label.toUpperCase(), { width: colWidth - 14 });
+          doc.font('Helvetica').fontSize(10.5).fillColor(COLOR.graphite)
+            .text(value, x, cursorY + labelHeight + 2, { width: colWidth - 14 });
+          const valueHeight = doc.heightOfString(value, { width: colWidth - 14 });
+          rowHeight = Math.max(rowHeight, labelHeight + valueHeight + 14);
+        });
+        cursorY += rowHeight;
+      }
+      doc.y = cursorY;
+      doc.fontSize(10).font('Helvetica').fillColor(COLOR.graphite);
+    }
+
+    // A real bordered table -- column widths, header row, row
+    // dividers -- replacing the previous bold-title-then-gray-metadata
+    // repeated block for benefits and risks.
+    function table(columns: Array<{ label: string; width: number }>, rows: string[][]) {
+      const startX = MARGIN;
+      let y = doc.y;
+      const rowPad = 6;
+
+      // Header row
+      doc.save().rect(startX, y, CONTENT_WIDTH, 20).fill(COLOR.cloud).restore();
+      let x = startX;
+      columns.forEach((col) => {
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(COLOR.muted)
+          .text(col.label.toUpperCase(), x + 6, y + 6, { width: col.width - 12 });
+        x += col.width;
+      });
+      y += 20;
+
+      rows.forEach((row) => {
+        // Measure the tallest cell in this row before drawing, so
+        // wrapped text doesn't overlap the row divider below it.
+        const heights = row.map((cell, i) => {
+          doc.font('Helvetica').fontSize(9.5);
+          return doc.heightOfString(cell, { width: columns[i].width - 12 });
+        });
+        const rowHeight = Math.max(...heights, 14) + rowPad * 2;
+
+        // Page-break check: start a fresh page rather than splitting
+        // a table row across two pages.
+        if (y + rowHeight > doc.page.height - MARGIN) {
+          doc.addPage();
+          y = MARGIN;
+        }
+
+        x = startX;
+        row.forEach((cell, i) => {
+          doc.font('Helvetica').fontSize(9.5).fillColor(COLOR.graphite)
+            .text(cell, x + 6, y + rowPad, { width: columns[i].width - 12 });
+          x += columns[i].width;
+        });
+        doc.save().strokeColor(COLOR.hairline).lineWidth(0.5)
+          .moveTo(startX, y + rowHeight).lineTo(startX + CONTENT_WIDTH, y + rowHeight).stroke().restore();
+        y += rowHeight;
+      });
+
+      doc.y = y + 10;
+    }
+
+    // ---------- Header band ----------
+    doc.save().rect(0, 0, PAGE_WIDTH, 96).fill(COLOR.graphite).restore();
+    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(19)
+      .text(bc.title ?? 'Business Case', MARGIN, 28, { width: CONTENT_WIDTH });
+    doc.font('Helvetica').fontSize(9.5).fillColor('#C7CAD6')
+      .text([bc.portfolio_name, bc.sponsor_name && `Sponsor: ${bc.sponsor_name}`, bc.submitted_by_name && `Submitted by: ${bc.submitted_by_name}`]
+        .filter(Boolean).join('    /    '), MARGIN, 58);
+
+    if (bc.decision) {
+      const decisionColor = bc.decision === 'approved' ? COLOR.approved : COLOR.declined;
+      const label = `${bc.decision.toUpperCase()}${bc.decision_date ? `  \u00b7  ${new Date(bc.decision_date).toLocaleDateString()}` : ''}`;
+      doc.font('Helvetica-Bold').fontSize(9);
+      const badgeWidth = doc.widthOfString(label) + 20;
+      doc.save().roundedRect(PAGE_WIDTH - MARGIN - badgeWidth, 24, badgeWidth, 20, 10).fill(decisionColor).restore();
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#FFFFFF')
+        .text(label, PAGE_WIDTH - MARGIN - badgeWidth, 30, { width: badgeWidth, align: 'center' });
+    }
+
+    doc.y = 120;
+    doc.fillColor(COLOR.graphite);
 
     // ---------- Executive summary ----------
     sectionHeading('Executive Summary');
-    doc.text(bc.executive_summary || 'Not yet written.');
+    doc.text(bc.executive_summary || 'Not yet written.', { width: CONTENT_WIDTH, lineGap: 3 });
 
     // ---------- Problem statement ----------
     sectionHeading('Problem / Opportunity Statement');
-    doc.text(bc.problem_statement || 'Not yet written.');
+    doc.text(bc.problem_statement || 'Not yet written.', { width: CONTENT_WIDTH, lineGap: 3 });
 
     // ---------- Financial position (anchored estimate) ----------
     sectionHeading('Financial Position (anchored estimate)');
     if (estimate) {
-      doc.text(`Claimed at raise (P50): cost ${fmtMoney(estimate.claimed_cost)}, benefit ${fmtMoney(estimate.claimed_benefit)}`);
-      doc.text(`Assessed (P75): cost ${fmtMoney(estimate.assessed_cost)}, benefit ${fmtMoney(estimate.assessed_benefit)}`
-        + (estimate.cost_confidence ? ` — cost confidence: ${estimate.cost_confidence}` : '')
-        + (estimate.benefit_confidence ? `, benefit confidence: ${estimate.benefit_confidence}` : ''));
+      keyValueGrid([
+        ['Claimed at raise (P50) — Cost', fmtMoney(estimate.claimed_cost)],
+        ['Claimed at raise (P50) — Benefit', fmtMoney(estimate.claimed_benefit)],
+        ['Assessed (P75) — Cost', `${fmtMoney(estimate.assessed_cost)}${estimate.cost_confidence ? `  (${estimate.cost_confidence} confidence)` : ''}`],
+        ['Assessed (P75) — Benefit', `${fmtMoney(estimate.assessed_benefit)}${estimate.benefit_confidence ? `  (${estimate.benefit_confidence} confidence)` : ''}`],
+      ]);
     } else {
       doc.text('No estimate recorded yet.');
     }
-    doc.text(`Requested spend: ${fmtMoney(bc.requested_spend)}`);
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(11).text(`Requested spend: ${fmtMoney(bc.requested_spend)}`, { width: CONTENT_WIDTH });
+    doc.font('Helvetica').fontSize(10);
 
     // ---------- Strategic alignment ----------
     sectionHeading('Strategic Alignment');
     if (goal) {
-      doc.text(`Linked goal: ${goal.goal_name} (${goal.goal_year})`);
-      if (goal.alignment_notes) doc.text(goal.alignment_notes);
+      doc.text(`Linked goal: ${goal.goal_name} (${goal.goal_year})`, { width: CONTENT_WIDTH, lineGap: 3 });
+      if (goal.alignment_notes) doc.moveDown(0.2).text(goal.alignment_notes, { width: CONTENT_WIDTH, lineGap: 3 });
     } else {
       doc.text('Not linked to a declared strategic goal.');
     }
@@ -892,11 +1014,13 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
     // ---------- Stakeholders / governance (RACI) ----------
     sectionHeading('Stakeholders & Governance (RACI)');
     if (raci) {
-      doc.text(`Accountable — Financial: ${raci.accountable_financial_name}`);
-      doc.text(`Accountable — Scope: ${raci.accountable_scope_name}`);
-      doc.text(`Accountable — Schedule: ${raci.accountable_schedule_name}`);
-      doc.text(`Sponsor: ${raci.sponsor_name}`);
-      doc.text(`Benefit Owner: ${raci.benefit_owner_name}`);
+      keyValueGrid([
+        ['Accountable — Financial', raci.accountable_financial_name],
+        ['Accountable — Scope', raci.accountable_scope_name],
+        ['Accountable — Schedule', raci.accountable_schedule_name],
+        ['Sponsor', raci.sponsor_name],
+        ['Benefit Owner', raci.benefit_owner_name],
+      ]);
     } else {
       doc.text('RACI not yet named.');
     }
@@ -904,23 +1028,35 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
     // ---------- Governance requirements (cost-tiered, cumulative) ----------
     sectionHeading('Governance Requirements (by requested spend)');
     if (governance.highest_tier_name) {
-      doc.text(`Governance tier reached: ${governance.highest_tier_name} (threshold ${fmtMoney(governance.highest_tier_threshold)})`);
+      doc.text(`Governance tier reached: ${governance.highest_tier_name} (threshold ${fmtMoney(governance.highest_tier_threshold)})`, { width: CONTENT_WIDTH, lineGap: 3 });
+      doc.moveDown(0.3);
     }
-    doc.text(`Required approvers: ${governance.required_approvers.length > 0 ? governance.required_approvers.join(', ') : 'none configured'}`);
-    doc.text(`Required documents: ${governance.required_documents.length > 0 ? governance.required_documents.join(', ') : 'none configured'}`);
+    keyValueGrid([
+      ['Required approvers', governance.required_approvers.length > 0 ? governance.required_approvers.join(', ') : 'None configured'],
+      ['Required documents', governance.required_documents.length > 0 ? governance.required_documents.join(', ') : 'None configured'],
+    ], 1);
 
     // ---------- Benefits ----------
     sectionHeading('Benefits Claimed');
     if (benefits.length === 0) {
       doc.text('No benefits recorded yet.');
     } else {
-      benefits.forEach((b: any) => {
-        doc.font('Helvetica-Bold').text(`${b.title}${b.claimed_value != null ? ` — ${fmtMoney(b.claimed_value)}` : ''}`, { continued: false });
-        doc.font('Helvetica').fontSize(9).fillColor('#666')
-          .text(`${b.benefit_type}   |   owner: ${b.owner_name ?? 'unassigned'}   |   ${b.status}`);
-        doc.fillColor('#000').fontSize(10);
-        doc.moveDown(0.3);
-      });
+      table(
+        [
+          { label: 'Benefit', width: CONTENT_WIDTH * 0.34 },
+          { label: 'Value', width: CONTENT_WIDTH * 0.16 },
+          { label: 'Type', width: CONTENT_WIDTH * 0.18 },
+          { label: 'Owner', width: CONTENT_WIDTH * 0.18 },
+          { label: 'Status', width: CONTENT_WIDTH * 0.14 },
+        ],
+        benefits.map((b: any) => [
+          b.title,
+          b.claimed_value != null ? fmtMoney(b.claimed_value) : '—',
+          b.benefit_type,
+          b.owner_name ?? 'Unassigned',
+          b.status,
+        ])
+      );
     }
 
     // ---------- Risks ----------
@@ -928,20 +1064,45 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
     if (risks.length === 0) {
       doc.text('No open risks recorded.');
     } else {
-      risks.forEach((r: any) => {
-        doc.font('Helvetica-Bold').text(r.description);
-        doc.font('Helvetica').fontSize(9).fillColor('#666')
-          .text(`${r.category}   |   likelihood: ${r.likelihood}   |   impact: ${r.impact}   |   status: ${r.status}`
-            + (r.owner_name ? `   |   owner: ${r.owner_name}` : ''));
-        if (r.mitigation) doc.fillColor('#000').fontSize(10).text(`Mitigation: ${r.mitigation}`);
-        doc.fillColor('#000').fontSize(10);
-        doc.moveDown(0.3);
-      });
+      table(
+        [
+          { label: 'Risk', width: CONTENT_WIDTH * 0.32 },
+          { label: 'Category', width: CONTENT_WIDTH * 0.14 },
+          { label: 'Likelihood', width: CONTENT_WIDTH * 0.15 },
+          { label: 'Impact', width: CONTENT_WIDTH * 0.11 },
+          { label: 'Mitigation', width: CONTENT_WIDTH * 0.28 },
+        ],
+        risks.map((r: any) => [
+          r.description,
+          r.category,
+          r.likelihood,
+          r.impact,
+          r.mitigation || '—',
+        ])
+      );
     }
 
-    doc.moveDown(1);
-    doc.fontSize(8).fillColor('#999')
-      .text(`Generated from Ledger on ${new Date().toLocaleDateString()}. This is a summary export; the full audit trail lives in the platform.`);
+    // ---------- Footer: page numbers + generation note on every page ----------
+    const pageRange = doc.bufferedPageRange();
+    for (let i = pageRange.start; i < pageRange.start + pageRange.count; i++) {
+      doc.switchToPage(i);
+      // Writing text below the page's defined bottom margin makes
+      // pdfkit's auto-flow engine think content overflowed and
+      // silently append a blank page to hold the "remainder" -- once
+      // per page, so it compounds fast across a multi-page export.
+      // Zeroing the bottom margin just for this write avoids that;
+      // safe here since the footer is the last thing drawn per page.
+      doc.page.margins.bottom = 0;
+      const footerY = doc.page.height - 40;
+      doc.save().strokeColor(COLOR.hairline).lineWidth(0.5)
+        .moveTo(MARGIN, footerY).lineTo(PAGE_WIDTH - MARGIN, footerY).stroke().restore();
+      doc.font('Helvetica').fontSize(8).fillColor(COLOR.muted)
+        .text(
+          `Generated from Ledger on ${new Date().toLocaleDateString()}  \u00b7  Summary export — the full audit trail lives in the platform.`,
+          MARGIN, footerY + 8, { width: CONTENT_WIDTH - 60, lineBreak: false }
+        );
+      doc.text(`${i - pageRange.start + 1} / ${pageRange.count}`, PAGE_WIDTH - MARGIN - 40, footerY + 8, { width: 40, align: 'right', lineBreak: false });
+    }
 
     doc.end();
   } catch (err) {

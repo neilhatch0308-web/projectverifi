@@ -419,6 +419,7 @@ router.get('/me/actions', requireAuth, async (req, res) => {
   const { organizationId, userId, permissions } = req.user!;
   const canTriage = permissions.includes('demand.triage');
   const canAssess = permissions.includes('demand.assess');
+  const canEditBusinessCase = permissions.includes('business_case.edit');
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
@@ -441,7 +442,31 @@ router.get('/me/actions', requireAuth, async (req, res) => {
         [userId, canAssess]
       );
 
-      return { triageNeeded: triageNeeded.rows, assessmentNeeded: assessmentNeeded.rows };
+      // "Pending business case" here means the case exists (the demand
+      // has been promoted) but hasn't actually been written yet -- no
+      // executive summary and no problem statement ("opportunity
+      // statement"). This is deliberately narrower than "decision is
+      // still pending": a case can be fully written and just waiting
+      // on Approve/Decline, which is a different state (someone else's
+      // action, not "needs writing"). Gated on business_case.edit,
+      // the permission that actually lets someone author it, rather
+      // than demand.triage which only governs pre-promotion actions.
+      const businessCaseNeeded = await client.query(
+        `SELECT d.id, d.title, d.raised_date, d.confidential, p.name AS portfolio_name,
+                bc.id AS business_case_id
+         FROM demand d
+         JOIN business_case bc ON bc.demand_id = d.id
+         JOIN portfolio p ON p.id = d.portfolio_id
+         WHERE d.status = 'promoted'
+           AND bc.decision = 'pending'
+           AND (bc.executive_summary IS NULL OR bc.problem_statement IS NULL)
+           AND $1
+           AND (d.confidential = false OR can_view_confidential_demand(d.id, $2))
+         ORDER BY d.raised_date ASC`,
+        [canEditBusinessCase, userId]
+      );
+
+      return { triageNeeded: triageNeeded.rows, assessmentNeeded: assessmentNeeded.rows, businessCaseNeeded: businessCaseNeeded.rows };
     });
 
     res.json(result);

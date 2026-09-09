@@ -27,9 +27,14 @@ interface ActionItem {
   confidential: boolean;
 }
 
+interface BusinessCaseActionItem extends ActionItem {
+  business_case_id: string;
+}
+
 interface Actions {
   triageNeeded: ActionItem[];
   assessmentNeeded: ActionItem[];
+  businessCaseNeeded: BusinessCaseActionItem[];
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -89,7 +94,7 @@ function ActionRow({ item, actionLabel, to }: { item: ActionItem; actionLabel: s
 export function MyHome() {
   const { user } = useAuth();
   const [myDemand, setMyDemand] = useState<Demand[]>([]);
-  const [actions, setActions] = useState<Actions>({ triageNeeded: [], assessmentNeeded: [] });
+  const [actions, setActions] = useState<Actions>({ triageNeeded: [], assessmentNeeded: [], businessCaseNeeded: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,12 +117,14 @@ export function MyHome() {
   const hasConfidential =
     myDemand.some((d) => d.confidential) ||
     actions.triageNeeded.some((a) => a.confidential) ||
-    actions.assessmentNeeded.some((a) => a.confidential);
+    actions.assessmentNeeded.some((a) => a.confidential) ||
+    actions.businessCaseNeeded.some((a) => a.confidential);
 
   const visibleTriage = actions.triageNeeded.filter((a) => !hideConfidential || !a.confidential);
   const visibleAssessment = actions.assessmentNeeded.filter((a) => !hideConfidential || !a.confidential);
+  const visibleBusinessCase = actions.businessCaseNeeded.filter((a) => !hideConfidential || !a.confidential);
   const visibleMyDemand = myDemand.filter((d) => !hideConfidential || !d.confidential);
-  const totalActions = visibleTriage.length + visibleAssessment.length;
+  const totalActions = visibleTriage.length + visibleAssessment.length + visibleBusinessCase.length;
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -160,6 +167,15 @@ export function MyHome() {
                 <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 6 }}>Needs P75 assessment</div>
                 {visibleAssessment.map((item) => (
                   <ActionRow key={item.id} item={item} actionLabel="Assess" to={`/demand/${item.id}/assess`} />
+                ))}
+              </>
+            )}
+
+            {visibleBusinessCase.length > 0 && (
+              <>
+                <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 6 }}>Needs business case</div>
+                {visibleBusinessCase.map((item) => (
+                  <ActionRow key={item.id} item={item} actionLabel="Write" to={`/business-case/${item.business_case_id}`} />
                 ))}
               </>
             )}

@@ -57,6 +57,16 @@ export function AnnualPlanningBoard() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<ColumnKey | null>(null);
 
+  // Must be called unconditionally, before any of the early returns
+  // below -- this was previously called further down, only reached on
+  // the single-portfolio/board-loaded render path, which meant the
+  // hooks it calls internally (useState, useEffect) ran on some
+  // renders and not others. That's a Rules-of-Hooks violation (React
+  // error #310): the number of hooks called must be identical on
+  // every render of this component, regardless of which branch
+  // eventually returns.
+  const { hideConfidential, setHideConfidential } = useHideConfidential();
+
   useEffect(() => {
     apiFetch('/api/portfolios').then((p: Portfolio[]) => {
       setPortfolios(p);
@@ -373,7 +383,6 @@ export function AnnualPlanningBoard() {
   const discPct = allocated > 0 ? (Math.min(discretionary, genuineChoice) / allocated) * 100 : 0;
   const overPct = allocated > 0 && isOver ? ((discretionary - genuineChoice) / allocated) * 100 : 0;
 
-  const { hideConfidential, setHideConfidential } = useHideConfidential();
   const hasConfidential = [...board!.columns.all, ...board!.columns.budget, ...board!.columns.deferred].some((d) => d.confidential);
   const visibleAll = board!.columns.all.filter((d) => !hideConfidential || !d.confidential);
   const visibleBudget = board!.columns.budget.filter((d) => !hideConfidential || !d.confidential);
