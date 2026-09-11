@@ -24,11 +24,16 @@ export const pool = isCloudRun
       database: process.env.DB_NAME,
       max: 10,
       idleTimeoutMillis: 30000,
+      // pg's default is NO connection timeout at all - a slow or wedged
+      // Cloud SQL socket would otherwise hang any caller (including the
+      // boot-time RLS check) indefinitely rather than failing loudly.
+      connectionTimeoutMillis: 10000,
     })
   : new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
     });
 
 // Runs fn inside a transaction with app.current_org set for the duration,

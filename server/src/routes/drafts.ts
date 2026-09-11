@@ -25,6 +25,20 @@ function canActOnStage(stage: Stage, permissions: string[]): boolean {
   return !required || permissions.includes(required);
 }
 
+// Triage/Assess/Accept drafts are shared per demand - anyone holding the
+// stage's permission can see and continue one. But that permission is
+// role-wide, and a draft for a confidential demand shouldn't be any more
+// visible than the demand itself. Raise drafts never reach this check -
+// they have no demand_id yet, so there's nothing confidential to guard.
+async function canViewDraftDemand(client: any, demandId: string, userId: string): Promise<boolean> {
+  const result = await client.query(
+    `SELECT (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+       FROM demand WHERE id = $1`,
+    [demandId, userId]
+  );
+  return result.rows[0] ? result.rows[0].can_view : true; // missing demand isn't this check's job
+}
+
 const createDraftSchema = z.object({
   stage: stageSchema,
   demandId: looseUuid().nullable().optional(),
@@ -67,6 +81,14 @@ router.get('/drafts', requireAuth, async (req, res) => {
         params.push(userId);
         conditions.push(`fd.user_id = $${params.length}`);
       }
+
+      // A shared draft is tied to a demand, and shouldn't be any more
+      // visible than the demand itself -- a role-wide stage permission
+      // (demand.triage/demand.assess) is not the confidential-demand
+      // viewer list. Raise drafts (d.id IS NULL, no demand yet) are
+      // unaffected by this.
+      params.push(userId);
+      conditions.push(`(d.id IS NULL OR d.confidential = false OR can_view_confidential_demand(d.id, $${params.length}))`);
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const result = await client.query(
@@ -115,6 +137,12 @@ router.get('/drafts/:id', requireAuth, async (req, res) => {
     if (stage !== 'raise' && !canActOnStage(stage, permissions)) {
       return res.status(403).json({ error: 'Missing permission for this stage' });
     }
+    if (draft.demand_id) {
+      const canView = await withTenantContext(organizationId, (client) =>
+        canViewDraftDemand(client, draft.demand_id, userId)
+      );
+      if (!canView) return res.status(404).json({ error: 'Draft not found' });
+    }
 
     res.json(draft);
   } catch (err) {
@@ -142,7 +170,10 @@ router.post('/drafts', requireAuth, async (req, res) => {
   }
 
   try {
-    const draft = await withTenantContext(organizationId, async (client) => {
+    const outcome = await withTenantContext(organizationId, async (client) => {
+      if (demandId && !(await canViewDraftDemand(client, demandId, userId))) {
+        return { notFound: true as const };
+      }
       const result = await client.query(
         `INSERT INTO form_draft (id, organization_id, user_id, stage, demand_id, data, updated_by)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $2)
@@ -151,9 +182,10 @@ router.post('/drafts', requireAuth, async (req, res) => {
          RETURNING id, stage, demand_id, data, updated_at`,
         [organizationId, userId, stage, demandId ?? null, JSON.stringify(data)]
       );
-      return result.rows[0];
+      return { row: result.rows[0] };
     });
-    res.status(201).json(draft);
+    if ('notFound' in outcome) return res.status(404).json({ error: 'Demand not found' });
+    res.status(201).json(outcome.row);
   } catch (err) {
     console.error('Failed to save draft:', err);
     res.status(500).json({ error: 'Failed to save draft' });
@@ -171,7 +203,7 @@ router.patch('/drafts/:id', requireAuth, async (req, res) => {
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
-      const existing = await client.query(`SELECT stage, user_id FROM form_draft WHERE id = $1`, [draftId]);
+      const existing = await client.query(`SELECT stage, user_id, demand_id FROM form_draft WHERE id = $1`, [draftId]);
       if (existing.rows.length === 0) return { notFound: true as const };
 
       const stage = existing.rows[0].stage as Stage;
@@ -180,6 +212,9 @@ router.patch('/drafts/:id', requireAuth, async (req, res) => {
       }
       if (stage !== 'raise' && !canActOnStage(stage, permissions)) {
         return { forbidden: true as const };
+      }
+      if (existing.rows[0].demand_id && !(await canViewDraftDemand(client, existing.rows[0].demand_id, userId))) {
+        return { notFound: true as const };
       }
 
       const updated = await client.query(
@@ -208,7 +243,7 @@ router.delete('/drafts/:id', requireAuth, async (req, res) => {
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
-      const existing = await client.query(`SELECT stage, user_id FROM form_draft WHERE id = $1`, [draftId]);
+      const existing = await client.query(`SELECT stage, user_id, demand_id FROM form_draft WHERE id = $1`, [draftId]);
       if (existing.rows.length === 0) return { notFound: true as const };
 
       const stage = existing.rows[0].stage as Stage;
@@ -217,6 +252,9 @@ router.delete('/drafts/:id', requireAuth, async (req, res) => {
       }
       if (stage !== 'raise' && !canActOnStage(stage, permissions)) {
         return { forbidden: true as const };
+      }
+      if (existing.rows[0].demand_id && !(await canViewDraftDemand(client, existing.rows[0].demand_id, userId))) {
+        return { notFound: true as const };
       }
 
       await client.query(`DELETE FROM form_draft WHERE id = $1`, [draftId]);

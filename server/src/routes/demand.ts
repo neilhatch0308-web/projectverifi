@@ -12,6 +12,27 @@ class IncompleteScoring extends Error {
   }
 }
 
+// ---------- Confidentiality guard for WRITE actions on a demand ----------
+// Read paths (List, Detail, board, horizon, active-initiatives) already
+// filter on can_view_confidential_demand(). This closes the matching gap
+// on write actions: role-wide permissions like demand.triage/demand.assess/
+// org.manage previously let anyone holding them act on a confidential
+// demand by ID, even though they can't see it in any list. Returns true
+// if the demand doesn't exist at all too - callers should fall through to
+// their normal 404 in that case (this function isn't the existence check,
+// just the visibility one on top of it).
+async function assertCanAccessDemand(client: any, demandId: string | string[], userId: string): Promise<boolean> {
+  const idParam = Array.isArray(demandId) ? demandId[0] : demandId;
+  const result = await client.query(
+    `SELECT (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+       FROM demand WHERE id = $1`,
+    [idParam, userId]
+  );
+  const row = result.rows[0];
+  if (!row) return true; // no row - let the caller's own existence check produce the 404
+  return row.can_view;
+}
+
 // ---------- List ----------
 router.get('/demands', requireAuth, async (req, res) => {
   const { organizationId, userId } = req.user!;
@@ -59,6 +80,38 @@ router.get('/demands', requireAuth, async (req, res) => {
 });
 
 // ---------- Detail ----------
+// Fire-and-forget logging of a confidential-demand view. Deliberately
+// runs in its OWN tenant context / connection, started only after the
+// response has already been sent - a logging failure must never delay
+// or fail the read it's logging (see demand_confidential_access_log's
+// table comment in migration 55).
+function logConfidentialAccess(organizationId: string, demandId: string | string[], userId: string) {
+  const idParam = Array.isArray(demandId) ? demandId[0] : demandId;
+  withTenantContext(organizationId, async (client) => {
+    const basis = await client.query(
+      `SELECT CASE
+         WHEN EXISTS (SELECT 1 FROM demand WHERE id = $1 AND raised_by = $2) THEN 'raiser'
+         WHEN EXISTS (SELECT 1 FROM demand_confidential_viewer WHERE demand_id = $1 AND user_id = $2) THEN 'named_viewer'
+         WHEN EXISTS (SELECT 1 FROM demand WHERE id = $1 AND assigned_assessor_id = $2) THEN 'assessor'
+         WHEN EXISTS (
+           SELECT 1 FROM demand_raci r WHERE r.demand_id = $1
+             AND $2 IN (r.accountable_financial_id, r.accountable_scope_id, r.accountable_schedule_id, r.sponsor_id, r.benefit_owner_id)
+         ) THEN 'raci'
+         WHEN EXISTS (
+           SELECT 1 FROM business_case bc WHERE bc.demand_id = $1 AND $2 IN (bc.sponsor_user_id, bc.submitted_by)
+         ) THEN 'business_case'
+         ELSE 'unknown'
+       END AS basis`,
+      [idParam, userId]
+    );
+    await client.query(
+      `INSERT INTO demand_confidential_access_log (id, organization_id, demand_id, viewed_by, access_basis)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4)`,
+      [organizationId, idParam, userId, basis.rows[0].basis]
+    );
+  }).catch((err) => console.error('Failed to log confidential demand access (non-fatal):', err));
+}
+
 router.get('/demands/:id', requireAuth, async (req, res) => {
   const { organizationId, userId } = req.user!;
   const { id } = req.params;
@@ -189,9 +242,48 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
 
     if (!result) return res.status(404).json({ error: 'Demand not found' });
     res.json(result);
+    if (result.confidential) logConfidentialAccess(organizationId, id, userId);
   } catch (err) {
     console.error('Failed to fetch demand:', err);
     res.status(500).json({ error: 'Failed to fetch demand' });
+  }
+});
+
+// ---------- Audit trail ----------
+// Single chronological feed across every live audit source for this
+// demand (demand_audit_trail, migration 55). Same visibility rule as
+// every other confidential-demand read: if you can't see the demand,
+// you can't see its history either - including the fact that history
+// exists, hence 404 rather than 403.
+router.get('/demands/:id/audit-trail', requireAuth, async (req, res) => {
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const canView = await assertCanAccessDemand(client, id, userId);
+      if (!canView) return null;
+
+      const exists = await client.query(`SELECT id FROM demand WHERE id = $1`, [id]);
+      if (exists.rows.length === 0) return null;
+
+      const trail = await client.query(
+        `SELECT t.event_at, t.event_type, t.reference_id, t.prior_value, t.new_value, t.reason,
+                u.display_name AS actor_name
+           FROM demand_audit_trail t
+           LEFT JOIN app_user u ON u.id = t.actor_id
+          WHERE t.demand_id = $1
+          ORDER BY t.event_at ASC`,
+        [id]
+      );
+      return trail.rows;
+    });
+
+    if (result === null) return res.status(404).json({ error: 'Demand not found' });
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to fetch audit trail:', err);
+    res.status(500).json({ error: 'Failed to fetch audit trail' });
   }
 });
 
@@ -299,6 +391,7 @@ router.patch('/demands/:id/delivering-sub-portfolio', requireAuth, requirePermis
         `SELECT delivering_sub_portfolio_id FROM demand WHERE id = $1`, [id]
       );
       if (current.rows.length === 0) return null;
+      if (!(await assertCanAccessDemand(client, id, userId))) return null;
 
       const previousSubPortfolioId = current.rows[0].delivering_sub_portfolio_id;
 
@@ -359,6 +452,10 @@ router.patch('/demands/:id/raising-portfolio', requireAuth, requirePermission('o
 
       const current = await client.query(`SELECT portfolio_id FROM demand WHERE id = $1`, [id]);
       if (current.rows.length === 0) return { notFound: true as const };
+      // org.manage is deliberately NOT a confidential-demand override
+      // (decision 74) - a portfolio being retired still can't be used
+      // as a back door to move a confidential demand blind.
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
       const previousPortfolioId = current.rows[0].portfolio_id;
 
       const updated = await client.query(
@@ -564,6 +661,7 @@ router.post('/demands/:id/triage', requireAuth, requirePermission('demand.triage
       const current = check.rows[0];
 
       if (!current) return { notFound: true as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
       if (current.status !== 'raised') {
         return { wrongStatus: true as const, actual: current.status };
       }
@@ -603,21 +701,25 @@ router.patch('/demands/:id/assessor', requireAuth, requirePermission('demand.tri
   const parsed = assignAssessorSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id } = req.params;
 
   try {
-    const updated = await withTenantContext(organizationId, async (client) => {
-      const result = await client.query(
+    const result = await withTenantContext(organizationId, async (client) => {
+      const exists = await client.query(`SELECT id FROM demand WHERE id = $1`, [id]);
+      if (exists.rows.length === 0) return { notFound: true as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
+
+      const updated = await client.query(
         `UPDATE demand SET assigned_assessor_id = $1 WHERE id = $2
          RETURNING id, assigned_assessor_id`,
         [parsed.data.assessorId, id]
       );
-      return result.rows[0];
+      return { demand: updated.rows[0] };
     });
 
-    if (!updated) return res.status(404).json({ error: 'Demand not found' });
-    res.json(updated);
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    res.json(result.demand);
   } catch (err) {
     console.error('Failed to reassign assessor:', err);
     res.status(500).json({ error: 'Failed to reassign assessor' });
@@ -653,6 +755,7 @@ router.post('/demands/:id/assessment', requireAuth, requirePermission('demand.as
       const current = check.rows[0];
 
       if (!current) return { notFound: true as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
       if (current.status !== 'accepted') {
         return { wrongStatus: true as const, actual: current.status };
       }
@@ -703,18 +806,24 @@ router.post('/demands/:id/stop', requireAuth, requirePermission('demand.triage')
   const { id } = req.params;
 
   try {
-    const updated = await withTenantContext(organizationId, async (client) => {
-      const result = await client.query(
+    const result = await withTenantContext(organizationId, async (client) => {
+      const exists = await client.query(`SELECT id FROM demand WHERE id = $1`, [id]);
+      if (exists.rows.length === 0) return { notFound: true as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
+
+      const updated = await client.query(
         `UPDATE demand SET status = 'stopped', stop_reason = $1, stopped_by = $2, stopped_at = now()
          WHERE id = $3 AND status IN ('raised', 'accepted', 'assessed')
          RETURNING id, title, status`,
         [parsed.data.reason, userId, id]
       );
-      return result.rows[0];
+      if (!updated.rows[0]) return { wrongStatus: true as const };
+      return { demand: updated.rows[0] };
     });
 
-    if (!updated) return res.status(409).json({ error: 'This demand cannot be stopped from its current status' });
-    res.json(updated);
+    if ('notFound' in result) return res.status(404).json({ error: 'Demand not found' });
+    if ('wrongStatus' in result) return res.status(409).json({ error: 'This demand cannot be stopped from its current status' });
+    res.json(result.demand);
   } catch (err) {
     console.error('Failed to stop demand:', err);
     res.status(500).json({ error: 'Failed to stop demand' });
@@ -748,15 +857,16 @@ router.post('/demands/:id/accept', requireAuth, requirePermission('demand.triage
       const current = demandCheck.rows[0];
 
       if (!current) return { notFound: true as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { notFound: true as const };
       if (current.status !== 'assessed') {
         return { wrongStatus: true as const, actual: current.status };
       }
 
       await client.query(
         `INSERT INTO demand_raci
-           (id, demand_id, accountable_financial_id, accountable_scope_id, accountable_schedule_id, sponsor_id, benefit_owner_id)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)`,
-        [id, seats.accountableFinancialId, seats.accountableScopeId, seats.accountableScheduleId, seats.sponsorId, seats.benefitOwnerId]
+           (id, demand_id, accountable_financial_id, accountable_scope_id, accountable_schedule_id, sponsor_id, benefit_owner_id, set_by)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)`,
+        [id, seats.accountableFinancialId, seats.accountableScopeId, seats.accountableScheduleId, seats.sponsorId, seats.benefitOwnerId, userId]
       );
 
       const updated = await client.query(
@@ -887,10 +997,22 @@ router.delete('/demands/:id/confidential-viewers/:userId', requireAuth, async (r
       const canView = (await client.query(`SELECT can_view_confidential_demand($1, $2) AS can_view`, [id, userId])).rows[0].can_view;
       if (!canView) return { notFound: true as const };
 
-      await client.query(
-        `DELETE FROM demand_confidential_viewer WHERE demand_id = $1 AND user_id = $2`,
+      // Capture the grant before it's gone -- demand_confidential_viewer_
+      // revocation exists precisely so "this person was once trusted with
+      // this demand" survives the delete, not just "they aren't now".
+      const grant = await client.query(
+        `DELETE FROM demand_confidential_viewer WHERE demand_id = $1 AND user_id = $2
+         RETURNING added_by, added_at`,
         [id, targetUserId]
       );
+      if (grant.rows.length > 0) {
+        await client.query(
+          `INSERT INTO demand_confidential_viewer_revocation
+             (id, organization_id, demand_id, user_id, originally_added_by, originally_added_at, revoked_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)`,
+          [organizationId, id, targetUserId, grant.rows[0].added_by, grant.rows[0].added_at, userId]
+        );
+      }
       return { ok: true as const };
     });
 

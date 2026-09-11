@@ -153,6 +153,16 @@ router.post('/annual-plans/:id/items', requireAuth, requirePermission('planning.
       if (plan.rows.length === 0) return { notFound: true as const };
       if (plan.rows[0].status !== 'draft') return { locked: true as const };
 
+      // The board read already filters confidential demand out - a
+      // planning.edit holder shouldn't be able to move a demandId they
+      // can't see by supplying it directly instead of dragging a card.
+      const visible = await client.query(
+        `SELECT (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+           FROM demand WHERE id = $1`,
+        [demandId, userId]
+      );
+      if (!visible.rows[0] || !visible.rows[0].can_view) return { notFound: true as const };
+
       await client.query(
         `INSERT INTO annual_plan_item (id, plan_id, demand_id, column_placement, reason, moved_by)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
@@ -176,7 +186,7 @@ router.post('/annual-plans/:id/items', requireAuth, requirePermission('planning.
 
 // ---------- Move a demand back to All (remove its placement) ----------
 router.delete('/annual-plans/:id/items/:demandId', requireAuth, requirePermission('planning.edit'), async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id, demandId } = req.params;
 
   try {
@@ -184,6 +194,13 @@ router.delete('/annual-plans/:id/items/:demandId', requireAuth, requirePermissio
       const plan = await client.query(`SELECT status FROM annual_plan WHERE id = $1`, [id]);
       if (plan.rows.length === 0) return { notFound: true as const };
       if (plan.rows[0].status !== 'draft') return { locked: true as const };
+
+      const visible = await client.query(
+        `SELECT (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+           FROM demand WHERE id = $1`,
+        [demandId, userId]
+      );
+      if (!visible.rows[0] || !visible.rows[0].can_view) return { notFound: true as const };
 
       await client.query(`DELETE FROM annual_plan_item WHERE plan_id = $1 AND demand_id = $2`, [id, demandId]);
       return { ok: true as const };

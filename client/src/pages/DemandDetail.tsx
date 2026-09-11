@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
 import { useDraft } from '../lib/useDraft';
@@ -54,6 +54,42 @@ interface DemandDetail {
   target_year_locked_agreed: boolean;
 }
 
+interface AuditEvent {
+  event_at: string;
+  event_type: string;
+  reference_id: string | null;
+  prior_value: string | null;
+  new_value: string | null;
+  reason: string | null;
+  actor_name: string | null;
+}
+
+const AUDIT_EVENT_LABEL: Record<string, string> = {
+  raised: 'Raised',
+  triaged: 'Triaged',
+  stopped: 'Stopped',
+  promoted: 'Promoted to business case',
+  assessed: 'Assessed (P75)',
+  raci_named: 'RACI named',
+  delivering_portfolio_reassigned: 'Delivering sub-portfolio reassigned',
+  raising_portfolio_reassigned: 'Raising portfolio reassigned',
+  target_year_reassigned: 'Five-Year Horizon reassigned',
+  annual_plan_placement: 'Moved on Annual Plan',
+  confidential_viewer_added: 'Confidential viewer added',
+  confidential_viewer_revoked: 'Confidential viewer removed',
+};
+
+function auditEventLabel(eventType: string): string {
+  if (AUDIT_EVENT_LABEL[eventType]) return AUDIT_EVENT_LABEL[eventType];
+  // Business case revisions arrive as 'business_case_<field>' -- turn
+  // 'business_case_requested_spend' into 'Business case: requested spend revised'.
+  if (eventType.startsWith('business_case_')) {
+    const field = eventType.replace('business_case_', '').replace(/_/g, ' ');
+    return `Business case: ${field} revised`;
+  }
+  return eventType.replace(/_/g, ' ');
+}
+
 const DATE_DRIVER_LABEL: Record<string, string> = {
   regulatory: 'Regulatory / legislative deadline',
   audit_finding: 'Audit finding remediation',
@@ -67,6 +103,17 @@ const DIMENSION_LABEL: Record<string, string> = {
 
 export function DemandDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // location.key === 'default' means this entry has no history behind
+  // it within the app (a bookmark, a pasted link, a fresh tab) - going
+  // back would leave the SPA entirely rather than land anywhere useful.
+  // Otherwise we genuinely arrived via an in-app click (All Demand,
+  // Variance Report, Aging Report, wherever) and browser history
+  // already knows exactly where that was, so navigate(-1) returns to
+  // the real originating page and its state (filters, sort, scroll
+  // position) rather than always resetting to one hardcoded page.
+  const canGoBack = location.key !== 'default';
   const { has } = usePermissions();
   const [demand, setDemand] = useState<DemandDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -239,12 +286,23 @@ export function DemandDetail() {
     }
   }
 
+  const [auditTrail, setAuditTrail] = useState<AuditEvent[] | null>(null);
+  const [auditTrailError, setAuditTrailError] = useState<string | null>(null);
+
+  function loadAuditTrail() {
+    if (!id) return;
+    apiFetch(`/api/demands/${id}/audit-trail`)
+      .then(setAuditTrail)
+      .catch((err) => setAuditTrailError(err instanceof Error ? err.message : 'Could not load history.'));
+  }
+
   function load() {
     if (!id) return;
     setLoading(true);
     apiFetch(`/api/demands/${id}`).then(setDemand).catch((err) => setError(err.message)).finally(() => setLoading(false));
   }
   useEffect(load, [id]);
+  useEffect(loadAuditTrail, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
   useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
   useEffect(() => { if (demand?.status === 'promoted') loadDelivery(); }, [demand?.status]);
@@ -376,7 +434,20 @@ export function DemandDetail() {
 
   return (
     <div style={{ maxWidth: 660 }}>
-      <Link to="/demand" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
+      {canGoBack ? (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          style={{
+            fontSize: 13, fontFamily: 'inherit', color: 'var(--muted)', background: 'none',
+            border: 'none', cursor: 'pointer', padding: 0,
+          }}
+        >
+          &larr; Back
+        </button>
+      ) : (
+        <Link to="/demand" style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
+      )}
 
       <h1 className="page-title" style={{ marginTop: 12 }}>
         {demand.title}
@@ -1042,6 +1113,55 @@ export function DemandDetail() {
           </div>
         );
       })()}
+
+      <div className="goal-card" style={{ marginTop: 16 }}>
+        <div className="goal-card__name" style={{ marginBottom: 10 }}>History</div>
+
+        {auditTrailError && <p className="login-error">{auditTrailError}</p>}
+
+        {!auditTrailError && auditTrail === null && (
+          <p className="goal-card__meta">Loading...</p>
+        )}
+
+        {!auditTrailError && auditTrail !== null && auditTrail.length === 0 && (
+          <p className="goal-card__meta">Nothing recorded yet.</p>
+        )}
+
+        {!auditTrailError && auditTrail !== null && auditTrail.length > 0 && (
+          <div>
+            {auditTrail.map((event, i) => (
+              <div
+                key={i}
+                style={{ padding: '8px 0', borderTop: i > 0 ? '1px solid var(--hairline)' : undefined }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{auditEventLabel(event.event_type)}</div>
+                  <div className="goal-card__meta" style={{ whiteSpace: 'nowrap' }}>
+                    {new Date(event.event_at).toLocaleString()}
+                  </div>
+                </div>
+                <div className="goal-card__meta" style={{ marginTop: 2 }}>
+                  {event.actor_name ?? 'Unknown'}
+                  {event.prior_value && event.new_value && (
+                    <> &middot; {event.prior_value} &rarr; {event.new_value}</>
+                  )}
+                  {!event.prior_value && event.new_value && (
+                    <> &middot; {event.new_value}</>
+                  )}
+                  {event.prior_value && !event.new_value && (
+                    <> &middot; {event.prior_value}</>
+                  )}
+                </div>
+                {event.reason && (
+                  <div style={{ marginTop: 4, fontSize: 12.5, fontStyle: 'italic' }}>
+                    "{event.reason}"
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
     </div>
   );

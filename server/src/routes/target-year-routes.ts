@@ -32,11 +32,14 @@ router.patch('/demands/:id/target-year', requireAuth, async (req, res) => {
   try {
     const outcome = await withTenantContext(organizationId, async (client) => {
       const { rows } = await client.query(
-        `SELECT id, raised_by, target_start_year FROM demand WHERE id = $1`,
-        [demandId]
+        `SELECT id, raised_by, target_start_year,
+                (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+           FROM demand WHERE id = $1`,
+        [demandId, userId]
       );
       if (rows.length === 0) return { status: 404 as const, error: 'Demand not found' };
       const demand = rows[0];
+      if (!demand.can_view) return { status: 404 as const, error: 'Demand not found' };
 
       const isRaiser = demand.raised_by === userId;
       const canAssess = permissions.includes('demand.assess');
@@ -93,6 +96,7 @@ router.patch(
         const { rows } = await client.query(
           `SELECT d.id, d.target_start_year, d.target_start_quarter,
                   d.target_end_year, d.target_end_quarter, d.date_driver_type,
+                  (d.confidential = false OR can_view_confidential_demand(d.id, $2)) AS can_view,
                   EXISTS (
                     SELECT 1 FROM annual_plan_item api
                     JOIN annual_plan ap ON ap.id = api.plan_id
@@ -101,10 +105,11 @@ router.patch(
              FROM demand d
             WHERE d.id = $1
             FOR UPDATE`,
-          [demandId]
+          [demandId, userId]
         );
         if (rows.length === 0) return { status: 404 as const, error: 'Demand not found' };
         const demand = rows[0];
+        if (!demand.can_view) return { status: 404 as const, error: 'Demand not found' };
 
         if (demand.is_agreed_locked) {
           return {
@@ -263,16 +268,31 @@ router.post('/demands/:id/dependencies', requireAuth, requirePermission('plannin
 router.delete('/demands/:id/dependencies/:dependsOnId', requireAuth, requirePermission('planning.edit'), async (req, res) => {
   const demandId = looseUuid().parse(req.params.id);
   const dependsOnId = looseUuid().parse(req.params.dependsOnId);
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
 
   try {
-    await withTenantContext(organizationId, async (client) => {
+    const outcome = await withTenantContext(organizationId, async (client) => {
+      // Same visibility rule as creating a link - don't let removing a
+      // link confirm or act on a confidential demand you can't see.
+      const check = await client.query(
+        `SELECT
+           (SELECT EXISTS (SELECT 1 FROM demand d WHERE d.id = $1
+             AND (d.confidential = false OR can_view_confidential_demand(d.id, $3)))) AS demand_visible,
+           (SELECT EXISTS (SELECT 1 FROM demand d WHERE d.id = $2
+             AND (d.confidential = false OR can_view_confidential_demand(d.id, $3)))) AS depends_on_visible`,
+        [demandId, dependsOnId, userId]
+      );
+      const row = check.rows[0];
+      if (!row.demand_visible || !row.depends_on_visible) return { status: 404 as const, error: 'Demand not found' };
+
       await client.query(
         `DELETE FROM demand_dependency WHERE demand_id = $1 AND depends_on_id = $2`,
         [demandId, dependsOnId]
       );
+      return { status: 200 as const };
     });
-    return res.json({ ok: true });
+
+    return res.status(outcome.status).json(outcome.status === 200 ? { ok: true } : { error: outcome.error });
   } catch (err) {
     console.error('Failed to remove dependency:', err);
     return res.status(500).json({ error: 'Failed to remove dependency' });

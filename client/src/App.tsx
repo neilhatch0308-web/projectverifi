@@ -18,6 +18,9 @@ import { GovernanceTiers } from './pages/GovernanceTiers';
 import { RolesAdmin } from './pages/RolesAdmin';
 import { UserAdmin } from './pages/UserAdmin';
 import { PortfolioRollup } from './pages/PortfolioRollup';
+import { PortfolioReport } from './pages/PortfolioReport';
+import { VarianceReport } from './pages/VarianceReport';
+import { AgingReport } from './pages/AgingReport';
 import { FiveYearHorizon } from './pages/FiveYearHorizon';
 import { MyHome } from './pages/MyHome';
 import { ActiveInitiatives } from './pages/ActiveInitiatives';
@@ -81,6 +84,9 @@ function App() {
                 <Route path="/roles" element={<RolesAdmin />} />
                 <Route path="/users" element={<UserAdmin />} />
                 <Route path="/portfolio" element={<PortfolioRollup />} />
+                <Route path="/portfolio-report" element={<PortfolioReport />} />
+                <Route path="/variance-report" element={<VarianceReport />} />
+                <Route path="/aging-report" element={<AgingReport />} />
                 <Route path="/projects" element={<ActiveInitiatives />} />
               </Route>
             </Routes>

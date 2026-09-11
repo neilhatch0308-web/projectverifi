@@ -1098,7 +1098,7 @@ router.get('/business-cases/:id/export.pdf', requireAuth, requirePermission('bus
         .moveTo(MARGIN, footerY).lineTo(PAGE_WIDTH - MARGIN, footerY).stroke().restore();
       doc.font('Helvetica').fontSize(8).fillColor(COLOR.muted)
         .text(
-          `Generated from Ledger on ${new Date().toLocaleDateString()}  \u00b7  Summary export — the full audit trail lives in the platform.`,
+          `Generated from Project Verifi on ${new Date().toLocaleDateString()}  \u00b7  Summary export — the full audit trail lives in the platform.`,
           MARGIN, footerY + 8, { width: CONTENT_WIDTH - 60, lineBreak: false }
         );
       doc.text(`${i - pageRange.start + 1} / ${pageRange.count}`, PAGE_WIDTH - MARGIN - 40, footerY + 8, { width: 40, align: 'right', lineBreak: false });

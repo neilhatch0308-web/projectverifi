@@ -67,10 +67,21 @@ const BY_COLUMN: Record<Milestone, string> = {
 // read live" (decision 66), applied here for the third time (decision 75).
 router.get('/demands/:id/delivery', requireAuth, requirePermission(['delivery.view', 'delivery.edit']), async (req, res) => {
   const demandId = looseUuid().parse(req.params.id);
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
 
   try {
     const record = await withTenantContext(organizationId, async (client) => {
+      const visibility = await client.query(
+        `SELECT (confidential = false OR can_view_confidential_demand(id, $2)) AS can_view
+           FROM demand WHERE id = $1`,
+        [demandId, userId]
+      );
+      // No visibility row means the demand doesn't exist - fall through
+      // to the normal "nothing recorded yet" path rather than a special
+      // case; a genuinely missing demand id will just return an empty
+      // fallback below the same way a real one with no delivery data does.
+      if (visibility.rows[0] && !visibility.rows[0].can_view) return { forbidden: true as const };
+
       const result = await client.query(
         `SELECT dd.*,
                 started.display_name AS delivery_started_by_name,
@@ -107,7 +118,7 @@ router.get('/demands/:id/delivery', requireAuth, requirePermission(['delivery.vi
       // valid state (not found), not an error. In that case the
       // caller still wants needed_by_date/signed_off_budget context,
       // so fall back to a lighter lookup.
-      if (result.rows[0]) return result.rows[0];
+      if (result.rows[0]) return { data: result.rows[0] };
 
       const fallback = await client.query(
         `SELECT d.need_by_date AS needed_by_date,
@@ -124,9 +135,11 @@ router.get('/demands/:id/delivery', requireAuth, requirePermission(['delivery.vi
           WHERE d.id = $1`,
         [demandId]
       );
-      return fallback.rows[0] ? { ...fallback.rows[0], id: null } : null;
+      return { data: fallback.rows[0] ? { ...fallback.rows[0], id: null } : null };
     });
-    res.json(record);
+
+    if ('forbidden' in record) return res.status(404).json({ error: 'Demand not found' });
+    res.json(record.data);
   } catch (err) {
     console.error('Failed to fetch delivery tracking:', err);
     res.status(500).json({ error: 'Failed to fetch delivery tracking' });
@@ -147,6 +160,15 @@ router.post('/demands/:id/delivery/advance', requireAuth, requirePermission('del
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
+      const demandCheck = await client.query(`SELECT id, confidential FROM demand WHERE id = $1`, [demandId]);
+      if (demandCheck.rows.length === 0) return { status: 404 as const, error: 'Demand not found' };
+      if (demandCheck.rows[0].confidential) {
+        const visible = (await client.query(
+          `SELECT can_view_confidential_demand($1, $2) AS can_view`, [demandId, userId]
+        )).rows[0].can_view;
+        if (!visible) return { status: 404 as const, error: 'Demand not found' };
+      }
+
       // Ensure a row exists for this demand -- created lazily on the
       // first milestone rather than at promotion time, so a demand
       // that's promoted but not yet actually being delivered doesn't
