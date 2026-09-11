@@ -176,7 +176,13 @@
   pointer-events: none; /* never intercepts the pointerup that ends the drag */
 }
 
-.pill {
+/* Confirm/cancel buttons in the reassign-confirmation modal only -
+   NOT the same thing as the shared .toggle-pill in ledger-app.css
+   (that one's for AllDemand/MyHome/AnnualPlanningBoard/Horizon's own
+   Year-Quarter switch). Prefixed to match this file's own convention
+   after the .pill naming collision found here was fixed - everything
+   else in this file is already horizon-*, this was the one exception. */
+.horizon-modal-pill {
   font-size: 0.75rem;
   padding: 5px 12px;
   border-radius: 999px;
@@ -186,19 +192,19 @@
   cursor: pointer;
   transition: background 0.15s ease;
 }
-.pill:hover { background: var(--cloud); }
-.pill:focus-visible {
+.horizon-modal-pill:hover { background: var(--cloud); }
+.horizon-modal-pill:focus-visible {
   outline: 2px solid var(--indigo);
   outline-offset: 2px;
 }
-.pill--primary {
+.horizon-modal-pill--primary {
   background: var(--indigo);
   border-color: var(--indigo);
   color: #fff;
 }
-.pill--primary:hover { opacity: 0.9; }
-.pill--primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.pill--ghost { color: var(--muted); border-color: var(--hairline); }
+.horizon-modal-pill--primary:hover { opacity: 0.9; }
+.horizon-modal-pill--primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.horizon-modal-pill--ghost { color: var(--muted); border-color: var(--hairline); }
 
 .horizon-legend {
   display: flex;

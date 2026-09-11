@@ -69,6 +69,30 @@ export function RaiseDemand() {
 
   const [scores, setScores] = useState<Record<string, { level: string; rationale: string }>>({});
 
+  // Matched by name, same acknowledged trade-off as the Finance Impact
+  // Assessment trigger elsewhere in this app (a case-insensitive string
+  // match against a tenant-configurable name, not a first-class flag).
+  // Mirrors the server-side check in POST /demands exactly - that route
+  // is the real enforcement; this is purely to guide the person to the
+  // right state before they hit submit, not a substitute for it.
+  const financialTriggerCriterion = scoringCriteria.find((c) => /financial|revenue/i.test(c.name));
+  const financialTriggerLevel = financialTriggerCriterion ? scores[financialTriggerCriterion.id]?.level : undefined;
+  const financialRequired = financialTriggerLevel === '15' || financialTriggerLevel === '20';
+
+  // Once the financial trigger fires, the Financial dimension is
+  // mandatory - select it automatically rather than waiting for the
+  // person to notice the new requirement and do it themselves.
+  useEffect(() => {
+    if (!financialRequired) return;
+    setSelectedDimensions((prev) => {
+      if (prev.has('financial')) return prev;
+      const next = new Set(prev);
+      next.add('financial');
+      return next;
+    });
+    setCriteria((c) => (c.financial ? c : { ...c, financial: { dimension: 'financial', measure: '', baselineValue: '', targetValue: '', unit: '' } }));
+  }, [financialRequired]);
+
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -165,6 +189,17 @@ export function RaiseDemand() {
 
   function toggleDimension(dim: Criterion['dimension']) {
     setSelectedDimensions((prev) => {
+      // Every demand must keep at least one success measure - the last
+      // remaining dimension can't be clicked off (mirrors the server's
+      // own `criteria: z.array(...).min(1, ...)` requirement; this is
+      // the guided-UX half of that, not the real enforcement).
+      if (prev.has(dim) && prev.size === 1) return prev;
+      // Financial is locked on once the priority-scoring trigger fires -
+      // see financialRequired above. Removing it here would just have
+      // the effect immediately re-add it, so block it instead of
+      // letting the state flicker.
+      if (dim === 'financial' && financialRequired && prev.has(dim)) return prev;
+
       const next = new Set(prev);
       if (next.has(dim)) next.delete(dim);
       else {
@@ -198,8 +233,17 @@ export function RaiseDemand() {
     setError(null);
 
     const activeCriteria = Array.from(selectedDimensions).map((dim) => criteria[dim]);
+    if (activeCriteria.length === 0) {
+      setError('Every demand needs at least one success measure');
+      return;
+    }
     if (activeCriteria.some((c) => !c.measure.trim())) {
       setError('Every selected dimension needs a success measure filled in');
+      return;
+    }
+
+    if (financialRequired && !activeCriteria.some((c) => c.dimension === 'financial')) {
+      setError(`A financial success measure is required because ${financialTriggerCriterion?.name} is scored ${financialTriggerLevel}`);
       return;
     }
 
@@ -556,23 +600,33 @@ export function RaiseDemand() {
             Success measures
           </label>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
-            Pick which dimensions apply. These are captured now and preserved -
-            changing them later requires an approved re-base, not a direct edit.
+            Pick which dimensions apply - every demand needs at least one. These are captured now
+            and preserved - changing them later requires an approved re-base, not a direct edit.
+            {financialRequired && (
+              <> <strong>Financial is required</strong> because {financialTriggerCriterion?.name} is scored {financialTriggerLevel}.</>
+            )}
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
-            {DIMENSIONS.map((d) => (
-              <div
-                key={d.key}
-                onClick={() => toggleDimension(d.key)}
-                style={{
-                  border: selectedDimensions.has(d.key) ? '2px solid var(--teal)' : '1px solid var(--hairline)',
-                  borderRadius: 10, padding: '10px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                  background: selectedDimensions.has(d.key) ? 'rgba(23,195,178,0.06)' : '#fff',
-                }}
-              >
-                {d.label}
-              </div>
-            ))}
+            {DIMENSIONS.map((d) => {
+              const locked = (selectedDimensions.size === 1 && selectedDimensions.has(d.key)) ||
+                (d.key === 'financial' && financialRequired && selectedDimensions.has(d.key));
+              return (
+                <div
+                  key={d.key}
+                  onClick={() => toggleDimension(d.key)}
+                  title={locked ? 'Required - every demand needs at least one success measure' : undefined}
+                  style={{
+                    border: selectedDimensions.has(d.key) ? '2px solid var(--teal)' : '1px solid var(--hairline)',
+                    borderRadius: 10, padding: '10px 12px', cursor: locked ? 'default' : 'pointer', fontSize: 13, fontWeight: 600,
+                    background: selectedDimensions.has(d.key) ? 'rgba(23,195,178,0.06)' : '#fff',
+                    opacity: locked ? 0.85 : 1,
+                  }}
+                >
+                  {d.label}
+                  {locked && <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(required)</span>}
+                </div>
+              );
+            })}
           </div>
         </div>
 

@@ -153,6 +153,32 @@ h1, h2, h3 {
 .pill--indigo { background: rgba(91, 95, 239, 0.12); color: var(--indigo); }
 .pill--muted  { background: var(--hairline); color: var(--muted); }
 
+/* A DIFFERENT, distinctly-named pattern from .pill above (a static
+   status badge) - this is a clickable bordered toggle button, used by
+   the shared ConfidentialityToggle component (AllDemand, MyHome,
+   AnnualPlanningBoard, FiveYearHorizon) plus Horizon's own Year/Quarter
+   switch. Named separately on purpose: this used to live only in
+   FiveYearHorizon.css as an unqualified ".pill", which meant every one
+   of those OTHER three pages' toggle button only rendered correctly if
+   the user had already visited Five-Year Horizon in the same session
+   (whichever page's CSS loaded last won the naming collision) - a real,
+   load-order-dependent bug, not a hypothetical one. */
+.toggle-pill {
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--muted);
+  background: transparent;
+  color: var(--graphite);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.toggle-pill:hover { background: var(--cloud); }
+.toggle-pill:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+}
+
 /* ---------- goal cards ---------- */
 
 .goal-card {

@@ -167,6 +167,12 @@ export function PortfolioBudgets() {
   const totalBaseline = budgets.reduce((s, b) => s + Number(b.baseline_amount ?? 0), 0);
   const totalAssigned = budgets.reduce((s, b) => s + Number(b.assigned_amount ?? 0), 0);
   const totalCurrent = budgets.reduce((s, b) => s + Number(b.current_amount ?? 0), 0);
+  // Headroom: of the real working budget (Assigned), how much is NOT
+  // yet placed into a committed Annual Plan item. Computed per-portfolio
+  // then summed, not the other way round, so it matches the per-row
+  // Remainder column exactly rather than being a separately-rounded
+  // aggregate.
+  const totalRemainder = budgets.reduce((s, b) => s + (Number(b.assigned_amount ?? 0) - Number(b.current_amount ?? 0)), 0);
 
   const changeHistory: ChangeEntry[] = [
     ...adjustments.map((a): ChangeEntry => ({ kind: 'adjustment', at: a.adjusted_at, data: a })),
@@ -197,12 +203,12 @@ export function PortfolioBudgets() {
     <div style={{ maxWidth: 860 }}>
       <h1 className="page-title">Portfolio Budgets</h1>
       <p className="page-subtitle">
-        Baseline is set once and never changes. Current reflects what's actually committed in Annual
-        Planning. Assigned is the real working budget - adjustable, always with a reason.
+        Baseline is set once and never changes. Current Baseline is the tracket budget today. In Planning is the costed value of each demand 
+        commited to Annual Planning. Remainder is how much of Budget hasn't been committed to Annual Planning.
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1.25rem' }}>
-        <label style={{ fontSize: 13, fontWeight: 600 }}>Financial year</label>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>Financial Year</label>
         <select value={year} onChange={(e) => setYear(Number(e.target.value))}
           style={{ padding: '6px 10px', border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13 }}>
           {[currentYear - 1, currentYear, currentYear + 1].map((y) => <option key={y} value={y}>{y}</option>)}
@@ -212,21 +218,27 @@ export function PortfolioBudgets() {
       <div className="goal-card" style={{ marginBottom: '1.25rem', border: '2px solid var(--teal)' }}>
         <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
           <div>
-            <div className="goal-card__meta">Total baseline</div>
+            <div className="goal-card__meta">Total Baseline</div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
               GBP {totalBaseline.toLocaleString()}
             </div>
           </div>
           <div>
-            <div className="goal-card__meta">Total current (in Annual Planning)</div>
+            <div className="goal-card__meta">Total Current (Annual Planning)</div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
               GBP {totalCurrent.toLocaleString()}
             </div>
           </div>
           <div>
-            <div className="goal-card__meta">Total assigned</div>
+            <div className="goal-card__meta">Total Budget</div>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
               GBP {totalAssigned.toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <div className="goal-card__meta">Total Remainder</div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22 }}>
+              GBP {totalRemainder.toLocaleString()}
             </div>
           </div>
         </div>
@@ -241,9 +253,11 @@ export function PortfolioBudgets() {
             <thead>
               <tr>
                 <th>Portfolio</th>
-                <th style={{ textAlign: 'right' }}>Baseline</th>
-                <th style={{ textAlign: 'right' }}>Current</th>
-                <th style={{ textAlign: 'right' }}>Assigned</th>
+                <th style={{ textAlign: 'right' }}>Baseline Budget</th>
+                <th style={{ textAlign: 'right' }}>In Planning </th>
+                <th style={{ textAlign: 'right' }}>Current Budget</th>
+                <th style={{ textAlign: 'right' }}>Remainder</th>
+                <th style={{ textAlign: 'right' }}>Adjust</th>
                 <th></th>
               </tr>
             </thead>
@@ -274,10 +288,33 @@ export function PortfolioBudgets() {
                     </td>
 
                     <td style={{ textAlign: 'right' }}>
+                      {hasBaseline ? (
+                        <span style={{ fontWeight: 600 }}>{Number(b.assigned_amount).toLocaleString()}</span>
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>&mdash;</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'right' }}>
+                      {hasBaseline ? (
+                        (() => {
+                          const remainder = Number(b.assigned_amount) - Number(b.current_amount);
+                          return (
+                            <span style={{ fontWeight: 600, color: remainder < 0 ? '#b03a3a' : 'inherit' }}>
+                              {remainder.toLocaleString()}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>&mdash;</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'right' }}>
                       {!hasBaseline ? (
                         <span style={{ color: 'var(--muted)' }}>not set</span>
                       ) : !canManage ? (
-                        <span style={{ fontWeight: 600 }}>{Number(b.assigned_amount).toLocaleString()}</span>
+                        <span style={{ color: 'var(--muted)' }}>&mdash;</span>
                       ) : (
                         <>
                           <input

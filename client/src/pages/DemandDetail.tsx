@@ -90,6 +90,138 @@ function auditEventLabel(eventType: string): string {
   return eventType.replace(/_/g, ' ');
 }
 
+const OUTCOME_STATUS_LABEL: Record<string, string> = {
+  met: 'Met',
+  partially_met: 'Partially met',
+  not_met: 'Not met',
+};
+
+const OUTCOME_STATUS_COLOR: Record<string, string> = {
+  met: '#3f7d52',
+  partially_met: '#c58a1a',
+  not_met: '#b03a3a',
+};
+
+// Whether a success measure was actually met - one judgement per
+// measure, recorded at whichever gate its dimension belongs to (see
+// relevantDimensions above). First recording needs no reason; changing
+// an existing one does, and is logged server-side (kpi_outcome_revision,
+// migration 63) - this component only needs to know whether an outcome
+// already exists to decide whether to ask for one.
+function KpiOutcomeEditor({ criterion, canEdit, onSaved }: { criterion: any; canEdit: boolean; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [status, setStatus] = useState(criterion.outcome_status ?? 'met');
+  const [actualValue, setActualValue] = useState(criterion.outcome_actual_value?.toString() ?? '');
+  const [notes, setNotes] = useState(criterion.outcome_notes ?? '');
+  const [reason, setReason] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const hasExistingOutcome = !!criterion.outcome_status;
+
+  async function save() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await apiFetch(`/api/kpi-definitions/${criterion.id}/outcome`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status,
+          actualValue: actualValue ? Number(actualValue) : undefined,
+          notes: notes.trim() || undefined,
+          reason: reason.trim() || undefined,
+        }),
+      });
+      setEditing(false);
+      setReason('');
+      onSaved();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save outcome');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+        {hasExistingOutcome ? (
+          <>
+            <span style={{ fontSize: 12, fontWeight: 600, color: OUTCOME_STATUS_COLOR[criterion.outcome_status] }}>
+              {OUTCOME_STATUS_LABEL[criterion.outcome_status] ?? criterion.outcome_status}
+            </span>
+            {criterion.outcome_actual_value !== null && criterion.outcome_actual_value !== undefined && (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>&mdash; actual: {criterion.outcome_actual_value} {criterion.unit ?? ''}</span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              ({criterion.outcome_recorded_by_name ?? 'someone'}, {new Date(criterion.outcome_recorded_at).toLocaleDateString()})
+            </span>
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>Not yet recorded whether this was met</span>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="btn btn--outline"
+            style={{ fontSize: 11, padding: '2px 8px' }}
+          >
+            {hasExistingOutcome ? 'Change' : 'Record outcome'}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 6, padding: 8, background: '#fff', border: '1px solid var(--hairline)', borderRadius: 6 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+        {(['met', 'partially_met', 'not_met'] as const).map((s) => (
+          <label key={s} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input type="radio" name={`outcome-${criterion.id}`} checked={status === s} onChange={() => setStatus(s)} />
+            {OUTCOME_STATUS_LABEL[s]}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+        <input
+          type="number"
+          value={actualValue}
+          onChange={(e) => setActualValue(e.target.value)}
+          placeholder={`Actual value${criterion.unit ? ` (${criterion.unit})` : ''} - optional`}
+          style={{ flex: 1, padding: 6, border: '1px solid var(--hairline)', borderRadius: 6, fontSize: 12 }}
+        />
+      </div>
+      <input
+        type="text"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes - optional"
+        style={{ width: '100%', padding: 6, border: '1px solid var(--hairline)', borderRadius: 6, fontSize: 12, marginBottom: 6 }}
+      />
+      {hasExistingOutcome && (
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason for changing a previously recorded outcome (required)"
+          style={{ width: '100%', padding: 6, border: '1px solid var(--hairline)', borderRadius: 6, fontSize: 12, marginBottom: 6 }}
+        />
+      )}
+      {saveError && <p className="login-error" style={{ fontSize: 12, margin: '4px 0' }}>{saveError}</p>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="button" onClick={save} disabled={saving} className="btn btn--outline" style={{ fontSize: 11, padding: '4px 10px' }}>
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        <button type="button" onClick={() => { setEditing(false); setSaveError(null); }} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const DATE_DRIVER_LABEL: Record<string, string> = {
   regulatory: 'Regulatory / legislative deadline',
   audit_finding: 'Audit finding remediation',
@@ -963,10 +1095,10 @@ export function DemandDetail() {
         const labelStyle = { fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'block' };
         const money = (v: any) => v === null || v === undefined ? null : `£${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
         const milestones = [
-          { key: 'delivery_started', label: 'Delivery started', atField: 'delivery_started_at', byField: 'delivery_started_by_name' },
-          { key: 'delivery_completed', label: 'Delivery complete', atField: 'delivery_completed_at', byField: 'delivery_completed_by_name' },
-          { key: 'adoption_measured', label: 'Adoption measured', atField: 'adoption_measured_at', byField: 'adoption_measured_by_name' },
-          { key: 'benefit_realized', label: 'Benefit realised', atField: 'benefit_realized_at', byField: 'benefit_realized_by_name' },
+          { key: 'delivery_started', label: 'Delivery started', atField: 'delivery_started_at', byField: 'delivery_started_by_name', relevantDimensions: [] as string[] },
+          { key: 'delivery_completed', label: 'Delivery complete', atField: 'delivery_completed_at', byField: 'delivery_completed_by_name', relevantDimensions: ['delivery'] },
+          { key: 'adoption_measured', label: 'Adoption measured', atField: 'adoption_measured_at', byField: 'adoption_measured_by_name', relevantDimensions: ['adoption'] },
+          { key: 'benefit_realized', label: 'Benefit realised', atField: 'benefit_realized_at', byField: 'benefit_realized_by_name', relevantDimensions: ['business', 'financial'] },
         ];
         return (
           <div className="goal-card" style={{ marginTop: 16 }}>
@@ -1043,6 +1175,49 @@ export function DemandDetail() {
                       )}
                     </div>
                   </div>
+
+                  {m.relevantDimensions.length > 0 && (() => {
+                    // Success measures set at raise (demand.criteria), for
+                    // whichever dimension(s) THIS gate exists to check against:
+                    // Delivery measures at Delivery complete, Adoption at
+                    // Adoption measured, Business + Financial together at
+                    // Benefit realised (the Realisation stage). Shown whether
+                    // the milestone is pending or already recorded - reference
+                    // for the person signing it off, and still useful context
+                    // for anyone reviewing it afterward. These were locked at
+                    // raise/accept and are never edited from this panel.
+                    const relevant = demand.criteria.filter((c: any) => m.relevantDimensions.includes(c.dimension));
+                    const dimensionNames = m.relevantDimensions.map((d) => DIMENSION_LABEL[d] ?? d).join(' or ');
+                    if (relevant.length === 0) {
+                      // Confirmed absence, not silence - otherwise there's
+                      // no way to tell "nothing was set" apart from "this
+                      // hasn't loaded" or a bug hiding the block.
+                      return (
+                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
+                          No {dimensionNames} success measure was set at raise.
+                        </div>
+                      );
+                    }
+                    return (
+                      <div style={{ marginTop: 8, padding: 10, background: 'var(--cloud)', borderRadius: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                          Success measure{relevant.length > 1 ? 's' : ''} set at raise
+                        </div>
+                        {relevant.map((c: any) => (
+                          <div key={c.id} style={{ fontSize: 12.5, marginBottom: 10 }}>
+                            <div>
+                              <span className="pill pill--teal" style={{ marginRight: 6 }}>{DIMENSION_LABEL[c.dimension] ?? c.dimension}</span>
+                              {c.name}
+                              {(c.baseline_value !== null || c.target_value !== null) && (
+                                <span style={{ color: 'var(--muted)' }}> &mdash; {c.baseline_value ?? '?'} {c.unit ?? ''} &rarr; {c.target_value ?? '?'} {c.unit ?? ''}</span>
+                              )}
+                            </div>
+                            <KpiOutcomeEditor criterion={c} canEdit={has('delivery.edit')} onSaved={load} />
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {canAdvance && (
                     <div style={{ marginTop: 8 }}>

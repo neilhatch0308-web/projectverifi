@@ -32,9 +32,9 @@ interface Stage { key: string; label: string; statuses: string[]; highlight?: bo
 // alarm - a stopped demand isn't a verdict, just not moving right now.
 const STAGES: Stage[] = [
   { key: 'raised', label: 'Raised', statuses: ['raised'] },
-  { key: 'accepted', label: 'Accepted', statuses: ['accepted'] },
+  { key: 'accepted', label: 'Accepted', statuses: ['accepted'], highlight: true },
   { key: 'assessed', label: 'Assessed', statuses: ['assessed'], highlight: true },
-  { key: 'promoted', label: 'Business Case', statuses: ['promoted'] },
+  { key: 'promoted', label: 'Progressing', statuses: ['promoted'], highlight: true },
   { key: 'stopped', label: 'Stopped', statuses: ['stopped'], exit: true },
 ];
 

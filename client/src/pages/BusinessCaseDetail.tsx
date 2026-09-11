@@ -61,11 +61,27 @@ export function BusinessCaseDetail() {
   const { has } = usePermissions();
   const [bc, setBc] = useState<BusinessCase | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  // loadError = the initial fetch failed, nothing to show at all - the
+  // only case that should replace the whole page.
+  // error = an ACTION failed (save, decision, etc.) - shown inline,
+  // alongside the still-fully-rendered page, so whatever the person was
+  // doing (e.g. typing a reason) isn't wiped out by their own mistake.
+  // These were both the same state before, which meant a routine
+  // "reason required" validation message destroyed the entire page,
+  // including the reason field needed to actually fix it - a dead end.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [requestedSpend, setRequestedSpend] = useState('');
   const [approvedAmount, setApprovedAmount] = useState('');
+  // Only meaningful once bc.decision === 'approved' - the server
+  // requires and logs a reason for these two fields at that point
+  // (migration 54, business_case_revision), but the client never had a
+  // field to actually provide one, so every attempt failed with no way
+  // to recover short of a raw API call.
+  const [requestedSpendReason, setRequestedSpendReason] = useState('');
+  const [approvedAmountReason, setApprovedAmountReason] = useState('');
   const [actualSpend, setActualSpend] = useState('');
 
   const [executiveSummary, setExecutiveSummary] = useState('');
@@ -126,7 +142,7 @@ export function BusinessCaseDetail() {
           setFiaNarrative(fia.financial_narrative ?? '');
         }
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
   }
 
@@ -137,8 +153,14 @@ export function BusinessCaseDetail() {
     if (!id || !requestedSpend) return;
     try {
       await apiFetch(`/api/business-cases/${id}/requested-spend`, {
-        method: 'PATCH', body: JSON.stringify({ requestedSpend: Number(requestedSpend) }),
+        method: 'PATCH',
+        body: JSON.stringify({
+          requestedSpend: Number(requestedSpend),
+          reason: requestedSpendReason.trim() || undefined,
+        }),
       });
+      setRequestedSpendReason('');
+      setError(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -153,8 +175,11 @@ export function BusinessCaseDetail() {
         body: JSON.stringify({
           approvedAmount: approvedAmount ? Number(approvedAmount) : undefined,
           actualSpendToDate: actualSpend ? Number(actualSpend) : undefined,
+          reason: approvedAmountReason.trim() || undefined,
         }),
       });
+      setApprovedAmountReason('');
+      setError(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -311,7 +336,7 @@ export function BusinessCaseDetail() {
   }
 
   if (loading) return <p>Loading...</p>;
-  if (error) return <p className="login-error">{error}</p>;
+  if (loadError) return <p className="login-error">{loadError}</p>;
   if (!bc) return <p>Not found.</p>;
 
   const inputStyle = { width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 13 };
@@ -335,6 +360,18 @@ export function BusinessCaseDetail() {
 
   return (
     <div style={{ maxWidth: 660 }}>
+      {error && (
+        <div className="login-error" style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'inherit', textDecoration: 'underline', flexShrink: 0, marginLeft: 12 }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {bc.title && (
         <Link to={`/demand`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
       )}
@@ -515,6 +552,20 @@ export function BusinessCaseDetail() {
             placeholder="GBP" style={{ ...inputStyle, maxWidth: 160 }} />
           <button onClick={saveRequestedSpend} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px' }}>Save</button>
         </div>
+        {bc.decision === 'approved' && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ fontSize: 12, display: 'block', marginBottom: 4, color: 'var(--muted)' }}>
+              Reason for change (required - this case is approved, and the change will be logged)
+            </label>
+            <input
+              type="text"
+              value={requestedSpendReason}
+              onChange={(e) => setRequestedSpendReason(e.target.value)}
+              placeholder="Why is this changing?"
+              style={inputStyle}
+            />
+          </div>
+        )}
       </div>
 
       <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
@@ -529,6 +580,20 @@ export function BusinessCaseDetail() {
             <input type="number" value={actualSpend} onChange={(e) => setActualSpend(e.target.value)} style={inputStyle} />
           </div>
         </div>
+        {bc.decision === 'approved' && (
+          <div style={{ marginTop: 10 }}>
+            <label style={{ fontSize: 12, display: 'block', marginBottom: 4, color: 'var(--muted)' }}>
+              Reason for change to Approved amount (required once approved - Actual spend is always free to update and doesn't need one)
+            </label>
+            <input
+              type="text"
+              value={approvedAmountReason}
+              onChange={(e) => setApprovedAmountReason(e.target.value)}
+              placeholder="Why is the approved amount changing?"
+              style={inputStyle}
+            />
+          </div>
+        )}
         <button onClick={saveInvestment} className="btn btn--outline" style={{ fontSize: 12, padding: '6px 12px', marginTop: 10 }}>Save investment</button>
       </div>
 

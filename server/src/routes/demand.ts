@@ -12,6 +12,16 @@ class IncompleteScoring extends Error {
   }
 }
 
+// A permission check (or a validation rule) that only exists in the UI
+// isn't a rule at all (decision 76) - the same applies to business
+// rules, not just access control. This has to be enforced here, not
+// just in RaiseDemand.tsx, or a direct API call bypasses it entirely.
+class MissingFinancialMeasure extends Error {
+  constructor(public criterionName: string, public scoreAwarded: number) {
+    super(`A financial success measure is required when ${criterionName} is scored ${scoreAwarded}`);
+  }
+}
+
 // ---------- Confidentiality guard for WRITE actions on a demand ----------
 // Read paths (List, Detail, board, horizon, active-initiatives) already
 // filter on can_view_confidential_demand(). This closes the matching gap
@@ -168,8 +178,15 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
       if (!canView) return null;
 
       const criteriaResult = await client.query(
-        `SELECT id, name, dimension, unit, baseline_value, target_value
-         FROM kpi_definition WHERE demand_id = $1 ORDER BY dimension`,
+        `SELECT kd.id, kd.name, kd.dimension, kd.unit, kd.baseline_value, kd.target_value,
+                ko.status AS outcome_status, ko.actual_value AS outcome_actual_value,
+                ko.notes AS outcome_notes, ko.recorded_at AS outcome_recorded_at,
+                ou.display_name AS outcome_recorded_by_name
+           FROM kpi_definition kd
+           LEFT JOIN kpi_outcome ko ON ko.kpi_definition_id = kd.id
+           LEFT JOIN app_user ou ON ou.id = ko.recorded_by
+          WHERE kd.demand_id = $1
+          ORDER BY kd.dimension`,
         [id]
       );
 
@@ -559,6 +576,27 @@ router.post('/demands', requireAuth, async (req, res) => {
       if (missing.length > 0) {
         throw new IncompleteScoring(missing.map((c) => c.name));
       }
+
+      // A high Financial/Revenue Impact score means the financial case
+      // for this demand matters enough that it must have its own
+      // measurable success criterion, not just be implied by whichever
+      // dimension(s) the raiser happened to pick. Matched by NAME, not a
+      // fixed criterion id, since scoring criteria are tenant-configurable
+      // (same acknowledged trade-off as the Finance Impact Assessment
+      // trigger on governance_tier.added_documents - a case-insensitive
+      // string match, not a first-class flag. If the criterion is ever
+      // renamed to drop "financial"/"revenue" entirely, this silently
+      // stops firing - worth a real flag column if that becomes a problem).
+      const financialTrigger = activeCriteria.rows.find((c) => /financial|revenue/i.test(c.name));
+      if (financialTrigger) {
+        const financialScore = scores.find((s) => s.criterionId === financialTrigger.id);
+        if (financialScore && financialScore.scoreAwarded >= 15) {
+          const hasFinancialMeasure = criteria.some((c) => c.dimension === 'financial');
+          if (!hasFinancialMeasure) {
+            throw new MissingFinancialMeasure(financialTrigger.name, financialScore.scoreAwarded);
+          }
+        }
+      }
       const demandResult = await client.query(
         `INSERT INTO demand
            (id, organization_id, portfolio_id, delivering_sub_portfolio_id, title, description, outcome_statement,
@@ -628,6 +666,9 @@ router.post('/demands', requireAuth, async (req, res) => {
       return res.status(400).json({
         error: `Priority scoring is incomplete - missing: ${err.missingCriteria.join(', ')}`,
       });
+    }
+    if (err instanceof MissingFinancialMeasure) {
+      return res.status(400).json({ error: err.message });
     }
     console.error('Failed to create demand:', err);
     res.status(500).json({ error: 'Failed to create demand' });
@@ -1025,3 +1066,93 @@ router.delete('/demands/:id/confidential-viewers/:userId', requireAuth, async (r
 });
 
 export default router;
+
+// ---------- Success measure outcomes: was it met? ----------
+// One row per kpi_definition (kpi_outcome, migration 63). First
+// recording needs no reason (no prior judgement to justify a change
+// from) - changing an EXISTING recorded outcome does, logged to
+// kpi_outcome_revision, same anchored-claim-with-gated-rebase shape
+// used everywhere else in this schema.
+const kpiOutcomeSchema = z.object({
+  status: z.enum(['met', 'partially_met', 'not_met']),
+  actualValue: z.number().optional(),
+  notes: z.string().optional(),
+  reason: z.string().optional(),
+});
+
+router.put('/kpi-definitions/:id/outcome', requireAuth, requirePermission('delivery.edit'), async (req, res) => {
+  const parsed = kpiOutcomeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+  const { status, actualValue, notes, reason } = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      // Resolve the owning demand (directly, or via the business case
+      // this KPI was carried forward onto at promotion) so the usual
+      // confidentiality check applies here exactly as everywhere else.
+      const owner = await client.query(
+        `SELECT COALESCE(kd.demand_id, bc.demand_id) AS demand_id
+           FROM kpi_definition kd
+           LEFT JOIN business_case bc ON bc.id = kd.business_case_id
+          WHERE kd.id = $1`,
+        [id]
+      );
+      if (owner.rows.length === 0 || !owner.rows[0].demand_id) return { status: 404 as const };
+      const demandId = owner.rows[0].demand_id;
+      if (!(await assertCanAccessDemand(client, demandId, userId))) return { status: 404 as const };
+
+      const existing = await client.query(
+        `SELECT id, status, actual_value FROM kpi_outcome WHERE kpi_definition_id = $1`,
+        [id]
+      );
+
+      if (existing.rows.length === 0) {
+        const inserted = await client.query(
+          `INSERT INTO kpi_outcome (id, organization_id, kpi_definition_id, status, actual_value, notes, recorded_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+           RETURNING id, status, actual_value, notes, recorded_at`,
+          [organizationId, id, status, actualValue ?? null, notes ?? null, userId]
+        );
+        return { status: 200 as const, row: inserted.rows[0] };
+      }
+
+      const prior = existing.rows[0];
+      // NaN !== NaN is always true in JS, so comparing via Number(x ?? NaN)
+      // would wrongly report "changed" every time actualValue is left
+      // empty on both the old and new save. Normalize to null instead.
+      const priorActual = prior.actual_value === null ? null : Number(prior.actual_value);
+      const newActual = actualValue === undefined ? null : Number(actualValue);
+      const changed = prior.status !== status || priorActual !== newActual;
+      if (changed && (!reason || !reason.trim())) {
+        return { status: 400 as const, error: 'A reason is required to change a previously recorded outcome, and it will be logged.' };
+      }
+
+      if (changed) {
+        await client.query(
+          `INSERT INTO kpi_outcome_revision
+             (id, organization_id, kpi_outcome_id, prior_status, new_status, prior_actual_value, new_actual_value, reason, changed_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)`,
+          [organizationId, prior.id, prior.status, status, prior.actual_value, actualValue ?? null, reason, userId]
+        );
+      }
+
+      const updated = await client.query(
+        `UPDATE kpi_outcome SET status = $1, actual_value = $2, notes = $3, recorded_by = $4, recorded_at = now()
+          WHERE id = $5
+          RETURNING id, status, actual_value, notes, recorded_at`,
+        [status, actualValue ?? null, notes ?? null, userId, prior.id]
+      );
+      return { status: 200 as const, row: updated.rows[0] };
+    });
+
+    if (result.status === 404) return res.status(404).json({ error: 'Success measure not found' });
+    if (result.status === 400) return res.status(400).json({ error: result.error });
+    res.json(result.row);
+  } catch (err) {
+    console.error('Failed to record success measure outcome:', err);
+    res.status(500).json({ error: 'Failed to record success measure outcome' });
+  }
+});

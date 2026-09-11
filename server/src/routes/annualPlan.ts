@@ -90,14 +90,38 @@ router.get('/annual-plans/:id/board', requireAuth, requirePermission(['planning.
       );
       const envelope = envelopeResult.rows[0] ?? { allocated_amount: 0, effective_amount: 0 };
 
+      // Current financial year, computed identically to the client's own
+      // horizon-year picker (RaiseDemand.tsx: UK fiscal year, April-start)
+      // so "no target year set" resolves to the same year everywhere in
+      // the app, not a second, subtly different definition.
+      const now = new Date();
+      const currentFY = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+
       // Eligible demand: assessed status, delivered by a sub-portfolio of
-      // THIS parent, or still uncategorised but raised in THIS parent.
+      // THIS parent, or still uncategorised but raised in THIS parent -
+      // AND due in the year this specific plan covers.
+      //
+      // Year matching:
+      //   - A demand with a target year set only belongs to the plan(s)
+      //     covering that year (target_start_year..target_end_year,
+      //     inclusive - end defaults to start for a single-year/quarter
+      //     span). It no longer shows on every year's board regardless
+      //     of when it's actually needed.
+      //   - A demand with NO target year set falls back to the CURRENT
+      //     financial year's plan only - not every plan either.
+      //   - Either way, a demand ALREADY PLACED on THIS plan (has an
+      //     annual_plan_item row here) never disappears just because its
+      //     target year was reassigned afterward - same principle this
+      //     schema already applies to portfolio reassignment on a
+      //     Locked/Agreed plan (surface the discrepancy, never silently
+      //     drop a committed placement).
       const demandResult = await client.query(
         `SELECT d.id, d.title, d.date_driver_type, d.date_driver_detail, d.confidential,
                 d.complexity_tier, COALESCE(a.assessed_cost, d.claimed_cost) AS cost,
                 COALESCE(dpv.weighted_score, 0) AS weighted_score,
                 pi.column_placement, pi.reason AS deferred_reason,
-                sub.name AS sub_portfolio_name
+                sub.name AS sub_portfolio_name,
+                d.target_start_year, d.target_end_year
          FROM demand d
          LEFT JOIN demand_assessment a ON a.demand_id = d.id
          LEFT JOIN demand_priority_view dpv ON dpv.demand_id = d.id
@@ -109,8 +133,13 @@ router.get('/annual-plans/:id/board', requireAuth, requirePermission(['planning.
              OR (d.delivering_sub_portfolio_id IS NULL AND d.portfolio_id = $2)
            )
            AND (d.confidential = false OR can_view_confidential_demand(d.id, $3))
+           AND (
+             pi.plan_id IS NOT NULL
+             OR (d.target_start_year IS NOT NULL AND $4 BETWEEN d.target_start_year AND COALESCE(d.target_end_year, d.target_start_year))
+             OR (d.target_start_year IS NULL AND $4 = $5)
+           )
          ORDER BY d.date_driver_type IS NULL OR d.date_driver_type = 'none', dpv.weighted_score DESC NULLS LAST`,
-        [id, plan.portfolio_id, userId]
+        [id, plan.portfolio_id, userId, plan.financial_year, currentFY]
       );
 
       const all = demandResult.rows.filter((r) => !r.column_placement);

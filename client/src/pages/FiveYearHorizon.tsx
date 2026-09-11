@@ -367,11 +367,15 @@ export function FiveYearHorizon() {
         <h1 className="horizon-title">Five-year horizon</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <ConfidentialityToggle hideConfidential={hideConfidential} onToggle={setHideConfidential} hasConfidential={hasConfidential} />
-          <button className="pill pill--toggle" onClick={() => setQuarterView((v) => !v)} aria-pressed={quarterView}>
+          <button className="toggle-pill" onClick={() => setQuarterView((v) => !v)} aria-pressed={quarterView}>
             {quarterView ? 'Year view' : 'Quarter view'}
           </button>
         </div>
       </div>
+      <p className="page-subtitle">
+        A movable forward view of current demand. Shape the length and connection of demands
+        from demand records that are tagged to a specific year.
+      </p>
 
       {error && <div className="horizon-inline-error">{error}</div>}
       {linkError && <div className="horizon-inline-error">{linkError}</div>}
@@ -516,10 +520,10 @@ export function FiveYearHorizon() {
               rows={3}
             />
             <div className="horizon-modal__actions">
-              <button className="pill pill--ghost" onClick={cancelReassign}>
+              <button className="horizon-modal-pill horizon-modal-pill--ghost" onClick={cancelReassign}>
                 Cancel
               </button>
-              <button className="pill pill--primary" onClick={confirmReassign} disabled={!reasonText.trim()}>
+              <button className="horizon-modal-pill horizon-modal-pill--primary" onClick={confirmReassign} disabled={!reasonText.trim()}>
                 Confirm move
               </button>
             </div>
