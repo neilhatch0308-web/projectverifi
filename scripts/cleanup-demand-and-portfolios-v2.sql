@@ -69,11 +69,28 @@ UNION ALL SELECT 'BEFORE', 'portfolio_budget', COUNT(*) FROM portfolio_budget
 UNION ALL SELECT 'BEFORE', 'kpi_outcome', COUNT(*) FROM kpi_outcome
 UNION ALL SELECT 'BEFORE', 'demand_delivery', COUNT(*) FROM demand_delivery;
 
--- ---------- Step 0: break the demand <-> business_case cycle ----------
--- demand.promoted_business_case_id is the DORMANT direction (nothing
--- in the live app reads or writes it - the real link is business_case.
--- demand_id, the other way round). Safe to null out unconditionally.
-UPDATE demand SET promoted_business_case_id = NULL WHERE promoted_business_case_id IS NOT NULL;
+-- ---------- Step 0: break the demand <-> business_case cycle, IF IT
+-- STILL EXISTS ----------
+-- demand.promoted_business_case_id was the dormant half of this cycle
+-- - and per DATABASE_SCHEMA_REFERENCE.md it was actually DROPPED in
+-- migration 38, superseded by business_case.demand_id (one-directional,
+-- no cycle at all in the current schema). Carried over from the
+-- original script without checking against the current schema first -
+-- that was a real mistake on the same "assumed, not verified" axis
+-- everything else in v2 was built to avoid, so it gets the same
+-- treatment: checked, not assumed.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'demand' AND column_name = 'promoted_business_case_id'
+    ) THEN
+        EXECUTE 'UPDATE demand SET promoted_business_case_id = NULL WHERE promoted_business_case_id IS NOT NULL';
+        RAISE NOTICE 'Cleared demand.promoted_business_case_id (legacy column, still present)';
+    ELSE
+        RAISE NOTICE 'demand.promoted_business_case_id does not exist (dropped in migration 38) - nothing to break, no cycle in the current schema';
+    END IF;
+END $$;
 
 -- ---------- Defensive, dependency-ordered wipe ----------
 -- Each entry only runs if the table currently exists. Order matters -
@@ -138,6 +155,31 @@ DELETE FROM portfolio_budget_adjustment;
 
 -- ---------- Tier 6: portfolio itself - sub-portfolios before parents,
 -- since portfolio.parent_portfolio_id is self-referential ----------
+-- First: app_user.default_portfolio_id (a per-user UI preference - which
+-- portfolio Annual Planning opens to by default) also references
+-- portfolio(id) and was missed in the original FK audit entirely - that
+-- audit only checked what references demand/business_case/kpi_definition,
+-- never what references portfolio itself. app_user rows and identities
+-- are fully preserved (this script still doesn't touch app_user
+-- otherwise) - only this one column, pointing at a portfolio about to
+-- be deleted, needs clearing first. Same shape as the promoted_business_
+-- case_id cycle-break above: a necessary column-level clear, not a
+-- deletion of the row it lives on. Checked defensively, matching
+-- everything else in this script, in case this column is ever renamed
+-- or dropped in a future migration.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'app_user' AND column_name = 'default_portfolio_id'
+    ) THEN
+        EXECUTE 'UPDATE app_user SET default_portfolio_id = NULL WHERE default_portfolio_id IS NOT NULL';
+        RAISE NOTICE 'Cleared app_user.default_portfolio_id for any user pointing at a portfolio being deleted';
+    ELSE
+        RAISE NOTICE 'app_user.default_portfolio_id does not exist - nothing to clear';
+    END IF;
+END $$;
+
 DELETE FROM portfolio WHERE parent_portfolio_id IS NOT NULL;
 DELETE FROM portfolio WHERE parent_portfolio_id IS NULL;
 
@@ -153,4 +195,4 @@ UNION ALL SELECT 'AFTER', 'demand_delivery', COUNT(*) FROM demand_delivery;
 -- the AFTER block, run COMMIT. If anything looks wrong, run ROLLBACK
 -- instead - nothing is permanent until you explicitly commit.
 --
--- COMMIT;
+COMMIT;

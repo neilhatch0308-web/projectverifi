@@ -1,0 +1,1469 @@
+[
+  {
+    "title": "Improve data quality in the warehouse",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 2",
+    "ownerIndex": 7,
+    "status": "promoted",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 8000,
+    "claimedBenefit": 21840,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 3,
+        "targetValue": 73
+      }
+    ],
+    "assessedCost": 7440,
+    "assessedBenefit": 23587,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Improve page load performance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 0,
+    "status": "promoted",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 102000,
+    "claimedBenefit": 347820,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 41000
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 10,
+        "targetValue": 94
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 92,
+        "targetValue": 18
+      }
+    ],
+    "assessedCost": 106080,
+    "assessedBenefit": 326951,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Consolidate approval workflows",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 1",
+    "ownerIndex": 6,
+    "status": "assessed",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 147000,
+    "claimedBenefit": 463050,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 47000
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 2,
+        "targetValue": 64
+      }
+    ],
+    "assessedCost": 202860,
+    "assessedBenefit": 319505,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Consolidate regional intranets",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 7,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 147000,
+    "claimedBenefit": 252840,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 112,
+        "targetValue": 14
+      }
+    ]
+  },
+  {
+    "title": "Improve data quality in the warehouse",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 1",
+    "ownerIndex": 3,
+    "status": "accepted",
+    "complexityTier": "low",
+    "costTier": "medium",
+    "claimedCost": 179000,
+    "claimedBenefit": 519100,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 78,
+        "targetValue": 5
+      },
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 33000
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 5,
+        "targetValue": 88
+      }
+    ]
+  },
+  {
+    "title": "Improve page load performance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 8,
+    "status": "accepted",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 163000,
+    "claimedBenefit": 306440,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 87,
+        "targetValue": 23
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 9,
+        "targetValue": 69
+      }
+    ]
+  },
+  {
+    "title": "Consolidate license management",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 2",
+    "ownerIndex": 0,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 172000,
+    "claimedBenefit": 596840,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 10,
+        "targetValue": 60
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 18,
+        "targetValue": 61
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 154,
+        "targetValue": 20
+      }
+    ]
+  },
+  {
+    "title": "Launch automated testing pipeline",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 3,
+    "status": "accepted",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 235000,
+    "claimedBenefit": 526400,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 72,
+        "targetValue": 8
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 8,
+        "targetValue": 71
+      }
+    ]
+  },
+  {
+    "title": "Upgrade mobile app",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 9,
+    "status": "assessed",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 31000,
+    "claimedBenefit": 27900,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 148,
+        "targetValue": 7
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 15,
+        "targetValue": 87
+      },
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 11000
+      }
+    ],
+    "assessedCost": 44330,
+    "assessedBenefit": 31527,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Consolidate customer contact data",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 1",
+    "ownerIndex": 6,
+    "status": "assessed",
+    "complexityTier": "low",
+    "costTier": "low",
+    "claimedCost": 224000,
+    "claimedBenefit": 349440,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 20000
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 19,
+        "targetValue": 79
+      }
+    ],
+    "assessedCost": 273280,
+    "assessedBenefit": 241114,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Retire redundant spreadsheet trackers",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 1",
+    "ownerIndex": 0,
+    "status": "stopped",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 244000,
+    "claimedBenefit": 490440,
+    "confidential": true,
+    "successMeasures": [
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 10,
+        "targetValue": 72
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 112,
+        "targetValue": 25
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 16,
+        "targetValue": 87
+      }
+    ],
+    "stopReason": "Superseded by a related initiative already in flight",
+    "assessedCost": 285480,
+    "assessedBenefit": 524771,
+    "recommendation": "stop",
+    "confidentialViewerIndex": 3
+  },
+  {
+    "title": "Automate manual reconciliation",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2",
+    "ownerIndex": 2,
+    "status": "stopped",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 85000,
+    "claimedBenefit": 187850,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 114,
+        "targetValue": 5
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 9,
+        "targetValue": 82
+      }
+    ],
+    "stopReason": "Doesn't stack up financially once assessed",
+    "assessedCost": 90950,
+    "assessedBenefit": 199121,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Improve incident response time",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 2",
+    "ownerIndex": 0,
+    "status": "promoted",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 171000,
+    "claimedBenefit": 526680,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 134,
+        "targetValue": 23
+      }
+    ],
+    "assessedCost": 244530,
+    "assessedBenefit": 452945,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Improve page load performance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 2",
+    "ownerIndex": 8,
+    "status": "accepted",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 83000,
+    "claimedBenefit": 219120,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 8,
+        "targetValue": 82
+      }
+    ]
+  },
+  {
+    "title": "Retire unsupported scheduling tool",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2",
+    "ownerIndex": 6,
+    "status": "assessed",
+    "complexityTier": "low",
+    "costTier": "low",
+    "claimedCost": 103000,
+    "claimedBenefit": 251320,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 26000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 155,
+        "targetValue": 7
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 19,
+        "targetValue": 76
+      }
+    ],
+    "assessedCost": 104030,
+    "assessedBenefit": 175924,
+    "recommendation": "no_recommendation"
+  },
+  {
+    "title": "Migrate ticketing platform",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 5,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 242000,
+    "claimedBenefit": 663080,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 122,
+        "targetValue": 27
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 20,
+        "targetValue": 69
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 14,
+        "targetValue": 85
+      }
+    ]
+  },
+  {
+    "title": "Consolidate regional intranets",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 1,
+    "status": "promoted",
+    "complexityTier": "low",
+    "costTier": "low",
+    "claimedCost": 42000,
+    "claimedBenefit": 142800,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 171,
+        "targetValue": 6
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 1,
+        "targetValue": 89
+      }
+    ],
+    "assessedCost": 50820,
+    "assessedBenefit": 167076,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Migrate student records system",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 1",
+    "ownerIndex": 5,
+    "status": "raised",
+    "complexityTier": "low",
+    "costTier": "high",
+    "claimedCost": 193000,
+    "claimedBenefit": 189140,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 85000
+      }
+    ]
+  },
+  {
+    "title": "Launch customer feedback loop",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 3,
+    "status": "stopped",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 33000,
+    "claimedBenefit": 38280,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 1,
+        "targetValue": 89
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 3,
+        "targetValue": 76
+      }
+    ],
+    "stopReason": "Superseded by a related initiative already in flight"
+  },
+  {
+    "title": "Migrate ticketing platform",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 1",
+    "ownerIndex": 0,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 193000,
+    "claimedBenefit": 337750,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 52000
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 1,
+        "targetValue": 81
+      }
+    ]
+  },
+  {
+    "title": "Migrate student records system",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 2",
+    "ownerIndex": 3,
+    "status": "promoted",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 199000,
+    "claimedBenefit": 527350,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 9,
+        "targetValue": 83
+      }
+    ],
+    "assessedCost": 254720,
+    "assessedBenefit": 469342,
+    "recommendation": "no_recommendation"
+  },
+  {
+    "title": "Migrate HR records",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 2",
+    "ownerIndex": 4,
+    "status": "accepted",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 3000,
+    "claimedBenefit": 10410,
+    "confidential": true,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 15000
+      }
+    ],
+    "confidentialViewerIndex": 2
+  },
+  {
+    "title": "Migrate on-prem file storage",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 2",
+    "ownerIndex": 3,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 87000,
+    "claimedBenefit": 289710,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 8,
+        "targetValue": 67
+      }
+    ]
+  },
+  {
+    "title": "Upgrade reporting dashboard",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 1",
+    "ownerIndex": 4,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 66000,
+    "claimedBenefit": 124080,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 16,
+        "targetValue": 61
+      },
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 86000
+      }
+    ]
+  },
+  {
+    "title": "Upgrade network infrastructure",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 2",
+    "ownerIndex": 2,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 116000,
+    "claimedBenefit": 288840,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 48000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 120,
+        "targetValue": 22
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 11,
+        "targetValue": 93
+      }
+    ]
+  },
+  {
+    "title": "Retire redundant spreadsheet trackers",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4",
+    "ownerIndex": 9,
+    "status": "promoted",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 132000,
+    "claimedBenefit": 122760,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 0,
+        "targetValue": 82
+      }
+    ],
+    "assessedCost": 179520,
+    "assessedBenefit": 105574,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Launch automated testing pipeline",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 8,
+    "status": "accepted",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 185000,
+    "claimedBenefit": 325600,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 123,
+        "targetValue": 11
+      }
+    ]
+  },
+  {
+    "title": "Improve page load performance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 2",
+    "ownerIndex": 5,
+    "status": "stopped",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 150000,
+    "claimedBenefit": 409500,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 67,
+        "targetValue": 27
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 18,
+        "targetValue": 68
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 10,
+        "targetValue": 66
+      }
+    ],
+    "stopReason": "Dependency (platform migration) not yet ready"
+  },
+  {
+    "title": "Automate expense approval",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 1",
+    "ownerIndex": 8,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 23000,
+    "claimedBenefit": 43470,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 6,
+        "targetValue": 66
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 179,
+        "targetValue": 25
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 13,
+        "targetValue": 64
+      }
+    ]
+  },
+  {
+    "title": "Launch customer feedback loop",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 2",
+    "ownerIndex": 7,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 192000,
+    "claimedBenefit": 251520,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 52000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 111,
+        "targetValue": 6
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 16,
+        "targetValue": 67
+      }
+    ]
+  },
+  {
+    "title": "Migrate print workflow",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 1",
+    "ownerIndex": 6,
+    "status": "promoted",
+    "complexityTier": "low",
+    "costTier": "low",
+    "claimedCost": 23000,
+    "claimedBenefit": 22770,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 101,
+        "targetValue": 17
+      }
+    ],
+    "assessedCost": 30590,
+    "assessedBenefit": 25275,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Migrate invoicing system",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4",
+    "ownerIndex": 9,
+    "status": "stopped",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 22000,
+    "claimedBenefit": 25300,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 56000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 109,
+        "targetValue": 26
+      }
+    ],
+    "stopReason": "Dependency (platform migration) not yet ready",
+    "assessedCost": 23760,
+    "assessedBenefit": 25806,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Automate manual reconciliation",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 3",
+    "ownerIndex": 1,
+    "status": "promoted",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 238000,
+    "claimedBenefit": 778260,
+    "confidential": true,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 95000
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 10,
+        "targetValue": 85
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 15,
+        "targetValue": 79
+      }
+    ],
+    "assessedCost": 342720,
+    "assessedBenefit": 505869,
+    "recommendation": "stop",
+    "confidentialViewerIndex": 8
+  },
+  {
+    "title": "Launch customer feedback loop",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 1",
+    "ownerIndex": 6,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 198000,
+    "claimedBenefit": 241560,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 173,
+        "targetValue": 6
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 0,
+        "targetValue": 63
+      }
+    ]
+  },
+  {
+    "title": "Improve data quality in the warehouse",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 1 - Sub 1",
+    "ownerIndex": 0,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 10000,
+    "claimedBenefit": 31100,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 18000
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 19,
+        "targetValue": 84
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 86,
+        "targetValue": 10
+      }
+    ]
+  },
+  {
+    "title": "Consolidate customer contact data",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 3,
+    "status": "assessed",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 43000,
+    "claimedBenefit": 104920,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 50000
+      },
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 6,
+        "targetValue": 74
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 0,
+        "targetValue": 88
+      }
+    ],
+    "assessedCost": 51170,
+    "assessedBenefit": 97576,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Automate renewal reminders",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 2",
+    "ownerIndex": 5,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 92000,
+    "claimedBenefit": 257600,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 9000
+      }
+    ]
+  },
+  {
+    "title": "Consolidate duplicate supplier records",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5 - Sub 2",
+    "ownerIndex": 0,
+    "status": "accepted",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 203000,
+    "claimedBenefit": 647570,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 4,
+        "targetValue": 83
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 6,
+        "targetValue": 79
+      }
+    ]
+  },
+  {
+    "title": "Improve search relevance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 2",
+    "ownerIndex": 4,
+    "status": "promoted",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 34000,
+    "claimedBenefit": 78200,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 92,
+        "targetValue": 6
+      }
+    ],
+    "assessedCost": 31280,
+    "assessedBenefit": 89930,
+    "recommendation": "no_recommendation"
+  },
+  {
+    "title": "Consolidate approval workflows",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 7,
+    "status": "accepted",
+    "complexityTier": "medium",
+    "costTier": "medium",
+    "claimedCost": 118000,
+    "claimedBenefit": 220660,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 88000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 131,
+        "targetValue": 24
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 11,
+        "targetValue": 67
+      }
+    ]
+  },
+  {
+    "title": "Retire unsupported scheduling tool",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 1",
+    "ownerIndex": 8,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 73000,
+    "claimedBenefit": 110230,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 125,
+        "targetValue": 7
+      }
+    ]
+  },
+  {
+    "title": "Upgrade mobile app",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 5",
+    "ownerIndex": 2,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "high",
+    "claimedCost": 249000,
+    "claimedBenefit": 809250,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 121,
+        "targetValue": 19
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 19,
+        "targetValue": 82
+      }
+    ]
+  },
+  {
+    "title": "Launch automated testing pipeline",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 3 - Sub 1",
+    "ownerIndex": 9,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 219000,
+    "claimedBenefit": 249660,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 11,
+        "targetValue": 86
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 1,
+        "targetValue": 90
+      }
+    ]
+  },
+  {
+    "title": "Improve data quality in the warehouse",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4",
+    "ownerIndex": 9,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 20000,
+    "claimedBenefit": 36400,
+    "confidential": true,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 89000
+      }
+    ],
+    "confidentialViewerIndex": 3
+  },
+  {
+    "title": "Improve search relevance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 2 - Sub 1",
+    "ownerIndex": 0,
+    "status": "assessed",
+    "complexityTier": "high",
+    "costTier": "low",
+    "claimedCost": 64000,
+    "claimedBenefit": 127360,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 8,
+        "targetValue": 95
+      },
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 19000
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 7,
+        "targetValue": 88
+      }
+    ],
+    "assessedCost": 66560,
+    "assessedBenefit": 126086,
+    "recommendation": "proceed"
+  },
+  {
+    "title": "Automate onboarding checklist",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4",
+    "ownerIndex": 8,
+    "status": "stopped",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 156000,
+    "claimedBenefit": 299520,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 0,
+        "targetValue": 79
+      },
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 17,
+        "targetValue": 67
+      },
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 5000
+      }
+    ],
+    "stopReason": "Not the right time - deprioritised against higher-value work this year",
+    "assessedCost": 193440,
+    "assessedBenefit": 242611,
+    "recommendation": "stop"
+  },
+  {
+    "title": "Improve data quality in the warehouse",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 4 - Sub 1",
+    "ownerIndex": 4,
+    "status": "accepted",
+    "complexityTier": "medium",
+    "costTier": "high",
+    "claimedCost": 233000,
+    "claimedBenefit": 743270,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 175,
+        "targetValue": 7
+      }
+    ]
+  },
+  {
+    "title": "Improve search relevance",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 3 - Sub 2",
+    "ownerIndex": 6,
+    "status": "raised",
+    "complexityTier": "medium",
+    "costTier": "low",
+    "claimedCost": 36000,
+    "claimedBenefit": 94680,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "financial",
+        "name": "Net cost saving realised",
+        "unit": "GBP",
+        "baselineValue": 0,
+        "targetValue": 75000
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 105,
+        "targetValue": 23
+      }
+    ]
+  },
+  {
+    "title": "Migrate ticketing platform",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 3 - Sub 1",
+    "ownerIndex": 5,
+    "status": "raised",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 148000,
+    "claimedBenefit": 364080,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "adoption",
+        "name": "Active user adoption rate",
+        "unit": "%",
+        "baselineValue": 6,
+        "targetValue": 64
+      },
+      {
+        "dimension": "delivery",
+        "name": "Days to go live",
+        "unit": "days",
+        "baselineValue": 164,
+        "targetValue": 15
+      }
+    ]
+  },
+  {
+    "title": "Consolidate customer contact data",
+    "description": "Dummy test data generated for demo/testing purposes.",
+    "portfolioName": "Demo Portfolio 3 - Sub 1",
+    "ownerIndex": 9,
+    "status": "accepted",
+    "complexityTier": "high",
+    "costTier": "medium",
+    "claimedCost": 193000,
+    "claimedBenefit": 424600,
+    "confidential": false,
+    "successMeasures": [
+      {
+        "dimension": "business",
+        "name": "Process cycle time reduction",
+        "unit": "%",
+        "baselineValue": 18,
+        "targetValue": 95
+      }
+    ]
+  }
+]

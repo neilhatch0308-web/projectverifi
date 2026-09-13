@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
 import { useDraft } from '../lib/useDraft';
+import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Criterion {
   id: string; name: string; dimension: string; unit: string | null;
@@ -47,6 +48,8 @@ interface DemandDetail {
   delivering_sub_portfolio_name: string | null; delivering_parent_portfolio_name: string | null;
   delivering_sub_portfolio_id: string | null;
   criteria: Criterion[]; raci: Raci | null; scores: Score[]; priority: Priority;
+  business_case_decision: string | null;
+  delivery_stage: 'delivery_started' | 'delivery_completed' | 'adoption_measured' | 'benefit_realized' | null;
   strategyLinks: StrategyLink[];
   businessCaseId: string | null;
   target_start_year: number | null; target_start_quarter: number | null;
@@ -687,7 +690,9 @@ export function DemandDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: '1.25rem' }}>
         <div className="goal-card" style={{ marginBottom: 0 }}>
           <div className="goal-card__meta">Current status</div>
-          <div className="goal-card__name" style={{ textTransform: 'capitalize' }}>{demand.status}</div>
+          <div className="goal-card__name" style={demand.status === 'promoted' ? undefined : { textTransform: 'capitalize' }}>
+            {demand.status === 'promoted' ? promotedDemandLabel(demand) : demand.status}
+          </div>
         </div>
         <div className="goal-card" style={{ marginBottom: 0 }}>
           <div className="goal-card__meta">Weighted priority score</div>
@@ -1090,7 +1095,7 @@ export function DemandDetail() {
         </Link>
       )}
 
-      {demand.status === 'promoted' && (has('delivery.view') || has('delivery.edit')) && (() => {
+      {demand.status === 'promoted' && demand.businessCaseId && (has('delivery.view') || has('delivery.edit')) && (() => {
         const inputStyle = { width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginTop: 6 };
         const labelStyle = { fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'block' };
         const money = (v: any) => v === null || v === undefined ? null : `£${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;

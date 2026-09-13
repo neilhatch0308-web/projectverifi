@@ -24,7 +24,7 @@ interface Demand {
 
 const ALL_STATUSES = ['raised', 'accepted', 'assessed', 'promoted', 'stopped'];
 const STATUS_LABELS: Record<string, string> = {
-  raised: 'Raised', accepted: 'Accepted', assessed: 'Assessed', promoted: 'Business Case', stopped: 'Stopped',
+  raised: 'Raised', accepted: 'Accepted', assessed: 'Assessed', promoted: 'Awaiting decision', stopped: 'Stopped',
 };
 
 export function PortfolioRollup() {

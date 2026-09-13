@@ -83,12 +83,29 @@ router.get('/annual-plans/:id/board', requireAuth, requirePermission(['planning.
         fixed_committed: 0, avg_weighted_score: 0, deferred_fixed_breach_count: 0,
       };
 
+      // Envelope: the figure Annual Planning is actually meant to plan
+      // against. This used to read portfolio_effective_budget - a VIEW
+      // left over from the pre-migration-41 allocated-amount-plus-
+      // transfers model, genuinely dormant since Baseline/Current/
+      // Assigned replaced it (see DATABASE_SCHEMA_REFERENCE.md's own
+      // note on this view). Because Postgres silently keeps a view's
+      // column references pointed at a renamed column, that view's
+      // "allocated_amount" was quietly reading portfolio_budget.
+      // baseline_amount all along - the ONE figure in this whole model
+      // that's permanently immutable after first set. Adjusting the
+      // real working budget (assigned_amount, via Portfolio Budgets'
+      // Adjust control) never touched what Annual Planning displayed
+      // as the envelope, which is exactly the bug this fixes.
+      // effective_amount (transfers-adjusted) is retired along with
+      // cross-portfolio transfers themselves (decision 65) and was
+      // never even rendered on the client - dropped entirely, not
+      // replaced.
       const envelopeResult = await client.query(
-        `SELECT allocated_amount, effective_amount FROM portfolio_effective_budget
+        `SELECT assigned_amount FROM portfolio_budget
          WHERE portfolio_id = $1 AND financial_year = $2`,
         [plan.portfolio_id, plan.financial_year]
       );
-      const envelope = envelopeResult.rows[0] ?? { allocated_amount: 0, effective_amount: 0 };
+      const envelope = { allocated_amount: Number(envelopeResult.rows[0]?.assigned_amount ?? 0) };
 
       // Current financial year, computed identically to the client's own
       // horizon-year picker (RaiseDemand.tsx: UK fiscal year, April-start)

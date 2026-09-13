@@ -24,5 +24,11 @@ export function promotedDemandLabel(d: PromotedDemandLike): string {
   }
   if (d.delivery_stage) return DELIVERY_STAGE_LABELS[d.delivery_stage];
   if (d.business_case_decision === 'approved') return 'Approved';
-  return 'Business Case';
+  // Deliberately NOT "Progressed" - that's the column/stage name on
+  // All Demand's board, and a card saying "Progressed" inside a column
+  // called "Progressed" tells you nothing you didn't already know from
+  // the column header. This is the one state where nothing has
+  // happened on the case yet, so the label should say exactly what's
+  // needed next instead of repeating the stage name.
+  return 'Awaiting decision';
 }

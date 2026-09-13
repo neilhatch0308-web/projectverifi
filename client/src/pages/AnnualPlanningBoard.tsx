@@ -22,7 +22,14 @@ interface Board {
     locked_by_name: string | null; unlocked_by_name: string | null;
   };
   totals: { budget_item_count: number; deferred_item_count: number; discretionary_committed: number; fixed_committed: number; avg_weighted_score: number; deferred_fixed_breach_count: number };
-  envelope: { allocated_amount: number; effective_amount: number };
+  // NOTE: this field is named allocated_amount for historical reasons
+  // (matches the wire format from before this fix) but the server now
+  // populates it from portfolio_budget.assigned_amount - the real,
+  // adjustable working budget - not the old allocated/baseline concept
+  // the name suggests. Kept the field name to avoid a wider rename;
+  // worth cleaning up properly if this route's response shape is ever
+  // revisited.
+  envelope: { allocated_amount: number };
   columns: { all: DemandCard[]; budget: DemandCard[]; deferred: DemandCard[] };
 }
 

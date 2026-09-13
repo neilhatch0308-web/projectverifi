@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { useHideConfidential } from '../lib/useHideConfidential';
 import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Demand {
@@ -32,9 +33,9 @@ interface Stage { key: string; label: string; statuses: string[]; highlight?: bo
 // alarm - a stopped demand isn't a verdict, just not moving right now.
 const STAGES: Stage[] = [
   { key: 'raised', label: 'Raised', statuses: ['raised'] },
-  { key: 'accepted', label: 'Accepted', statuses: ['accepted'], highlight: true },
+  { key: 'accepted', label: 'Accepted', statuses: ['accepted'] },
   { key: 'assessed', label: 'Assessed', statuses: ['assessed'], highlight: true },
-  { key: 'promoted', label: 'Progressing', statuses: ['promoted'], highlight: true },
+  { key: 'promoted', label: 'Progressed', statuses: ['promoted'] },
   { key: 'stopped', label: 'Stopped', statuses: ['stopped'], exit: true },
 ];
 
@@ -230,16 +231,14 @@ export function AllDemand() {
               return (
                 <div key={stage.key} style={{ display: 'contents' }}>
                   <div style={{ flex: '1 1 0', minWidth: 210, ...columnStyle(stage) }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13.5 }}>{stage.label}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{items.length}</span>
-                    </div>
-                    {items.map((d) => <DemandCard key={d.id} d={d} stage={stage} />)}
-                    {items.length === 0 && (
-                      <div style={{ color: 'var(--muted)', fontSize: 11.5, textAlign: 'center', padding: '14px 0', fontFamily: 'var(--font-mono)' }}>
-                        None
-                      </div>
-                    )}
+                    <CollapsibleSection title={stage.label} count={items.length} variant="section">
+                      {items.map((d) => <DemandCard key={d.id} d={d} stage={stage} />)}
+                      {items.length === 0 && (
+                        <div style={{ color: 'var(--muted)', fontSize: 11.5, textAlign: 'center', padding: '14px 0', fontFamily: 'var(--font-mono)' }}>
+                          None
+                        </div>
+                      )}
+                    </CollapsibleSection>
                   </div>
                   {i < STAGES.length - 1 && (
                     <div style={{ alignSelf: 'center', color: 'var(--hairline)', fontSize: 22, paddingTop: 40, userSelect: 'none' }}>

@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/apiClient';
 import { useAuth } from '../context/AuthContext';
 import { useHideConfidential } from '../lib/useHideConfidential';
 import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Demand {
@@ -38,7 +39,7 @@ interface Actions {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  raised: 'Raised', accepted: 'Accepted', assessed: 'Assessed', promoted: 'Business Case', stopped: 'Stopped',
+  raised: 'Raised', accepted: 'Accepted', assessed: 'Assessed', promoted: 'Awaiting decision', stopped: 'Stopped',
 };
 
 function DemandRow({ d }: { d: Demand }) {
@@ -148,58 +149,49 @@ export function MyHome() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
           {/* ---------- My Actions ---------- */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: 0 }}>My Actions</h2>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{totalActions}</span>
-            </div>
+            <CollapsibleSection title="My Actions" count={totalActions} variant="section">
+              {visibleTriage.length > 0 && (
+                <CollapsibleSection title="Needs triage" count={visibleTriage.length}>
+                  {visibleTriage.map((item) => (
+                    <ActionRow key={item.id} item={item} actionLabel="Triage" to={`/demand/${item.id}`} />
+                  ))}
+                </CollapsibleSection>
+              )}
 
-            {visibleTriage.length > 0 && (
-              <>
-                <div className="goal-card__meta" style={{ marginBottom: 6 }}>Needs triage</div>
-                {visibleTriage.map((item) => (
-                  <ActionRow key={item.id} item={item} actionLabel="Triage" to={`/demand/${item.id}`} />
-                ))}
-              </>
-            )}
+              {visibleAssessment.length > 0 && (
+                <CollapsibleSection title="Needs P75 assessment" count={visibleAssessment.length}>
+                  {visibleAssessment.map((item) => (
+                    <ActionRow key={item.id} item={item} actionLabel="Assess" to={`/demand/${item.id}/assess`} />
+                  ))}
+                </CollapsibleSection>
+              )}
 
-            {visibleAssessment.length > 0 && (
-              <>
-                <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 6 }}>Needs P75 assessment</div>
-                {visibleAssessment.map((item) => (
-                  <ActionRow key={item.id} item={item} actionLabel="Assess" to={`/demand/${item.id}/assess`} />
-                ))}
-              </>
-            )}
+              {visibleBusinessCase.length > 0 && (
+                <CollapsibleSection title="Needs business case" count={visibleBusinessCase.length}>
+                  {visibleBusinessCase.map((item) => (
+                    <ActionRow key={item.id} item={item} actionLabel="Write" to={`/business-case/${item.business_case_id}`} />
+                  ))}
+                </CollapsibleSection>
+              )}
 
-            {visibleBusinessCase.length > 0 && (
-              <>
-                <div className="goal-card__meta" style={{ marginTop: 12, marginBottom: 6 }}>Needs business case</div>
-                {visibleBusinessCase.map((item) => (
-                  <ActionRow key={item.id} item={item} actionLabel="Write" to={`/business-case/${item.business_case_id}`} />
-                ))}
-              </>
-            )}
-
-            {totalActions === 0 && (
-              <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing needs your action right now.</p>
-            )}
+              {totalActions === 0 && (
+                <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing needs your action right now.</p>
+              )}
+            </CollapsibleSection>
           </div>
 
           {/* ---------- My Demand ---------- */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, margin: 0 }}>My Demand</h2>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{visibleMyDemand.length}</span>
-            </div>
-
-            {visibleMyDemand.length > 0 ? (
-              visibleMyDemand.map((d) => <DemandRow key={d.id} d={d} />)
-            ) : (
-              <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-                You haven't raised any demand yet.{' '}
-                <Link to="/demand/raise">Raise your first.</Link>
-              </p>
-            )}
+            <CollapsibleSection title="My Demand" count={visibleMyDemand.length} variant="section">
+              {visibleMyDemand.length > 0 ? (
+                visibleMyDemand.map((d) => <DemandRow key={d.id} d={d} />)
+              ) : (
+                <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  You haven't raised any demand yet.{' '}
+                  <Link to="/demand/raise">Raise your first.</Link>
+                </p>
+              )}
+            </CollapsibleSection>
           </div>
         </div>
       )}
