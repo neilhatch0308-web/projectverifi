@@ -223,7 +223,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
       );
 
       const strategyResult = await client.query(
-        `SELECT sg.name AS title, dgl.alignment_notes
+        `SELECT sg.id AS strategic_goal_id, sg.name AS title, dgl.alignment_notes
          FROM demand_goal_link dgl
          JOIN strategic_goal sg ON sg.id = dgl.strategic_goal_id
          WHERE dgl.demand_id = $1`,
@@ -1066,6 +1066,96 @@ router.delete('/demands/:id/confidential-viewers/:userId', requireAuth, async (r
 });
 
 export default router;
+
+// ---------- Editing optional-at-raise fields, while still raised ----------
+// Date driver, strategic goal alignment, and adoption change type are all
+// optional at raise - someone might not know the goal link yet, or
+// whether this is externally date-driven, at the moment they first
+// write the demand up. Every other field on this app is either locked
+// immediately (claimed_cost, target years' first value) or locked once
+// a specific gate fires (kpi_definition after acceptance, via
+// trg_block_criterion_edit). These three had no edit path at all -
+// frozen the instant they were raised, stricter than intended.
+//
+// This opens a genuine, bounded editing window: settable/changeable
+// right up until triage moves the demand to 'accepted', then locked -
+// matching "optional at raise, refinable before anyone's acted on it,
+// closed once the process moves on". Gated to the raiser themselves
+// (the Submitter baseline's "view/edit own", the implicit floor every
+// user already has) or anyone holding demand.triage, who may want to
+// tidy these up just before triaging it themselves.
+const editRaiseDetailsSchema = z.object({
+  adoptionChangeType: z.enum(['process', 'tool', 'both']).nullable().optional(),
+  dateDriverType: z.enum(['regulatory', 'audit_finding', 'contractual', 'product_launch', 'none']).optional(),
+  dateDriverDetail: z.string().nullable().optional(),
+  strategicGoalId: looseUuid().nullable().optional(),
+  alignmentNotes: z.string().nullable().optional(),
+});
+
+router.patch('/demands/:id/raise-details', requireAuth, async (req, res) => {
+  const parsed = editRaiseDetailsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { organizationId, userId } = req.user!;
+  const { id } = req.params;
+  const { adoptionChangeType, dateDriverType, dateDriverDetail, strategicGoalId, alignmentNotes } = parsed.data;
+
+  try {
+    const result = await withTenantContext(organizationId, async (client) => {
+      const existing = await client.query(`SELECT status, raised_by FROM demand WHERE id = $1`, [id]);
+      if (existing.rows.length === 0) return { status: 404 as const };
+      if (!(await assertCanAccessDemand(client, id, userId))) return { status: 404 as const };
+
+      const { status, raised_by } = existing.rows[0];
+      const permissions = req.user!.permissions ?? [];
+      const isRaiser = raised_by === userId;
+      if (!isRaiser && !permissions.includes('demand.triage')) {
+        return { status: 403 as const };
+      }
+      if (status !== 'raised') {
+        return { status: 409 as const, error: `These fields can only be changed while a demand is still Raised (currently: ${status})` };
+      }
+
+      if (adoptionChangeType !== undefined || dateDriverType !== undefined || dateDriverDetail !== undefined) {
+        await client.query(
+          `UPDATE demand SET
+             adoption_change_type = COALESCE($1, adoption_change_type),
+             date_driver_type = COALESCE($2, date_driver_type),
+             date_driver_detail = CASE WHEN $3::text IS NOT NULL THEN NULLIF($3, '') ELSE date_driver_detail END
+           WHERE id = $4`,
+          [adoptionChangeType ?? null, dateDriverType ?? null, dateDriverDetail ?? null, id]
+        );
+      }
+
+      // Strategic goal link is a single optional row (demand_goal_link
+      // has a UNIQUE demand_id) - replacing it means delete-then-insert
+      // rather than update-in-place, same as how the raise route treats
+      // it as create-only today.
+      if (strategicGoalId !== undefined) {
+        await client.query(`DELETE FROM demand_goal_link WHERE demand_id = $1`, [id]);
+        if (strategicGoalId) {
+          await client.query(
+            `INSERT INTO demand_goal_link (id, demand_id, strategic_goal_id, alignment_notes, linked_by)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4)`,
+            [id, strategicGoalId, alignmentNotes ?? null, userId]
+          );
+        }
+      } else if (alignmentNotes !== undefined) {
+        await client.query(`UPDATE demand_goal_link SET alignment_notes = $1 WHERE demand_id = $2`, [alignmentNotes, id]);
+      }
+
+      return { status: 200 as const };
+    });
+
+    if (result.status === 404) return res.status(404).json({ error: 'Demand not found' });
+    if (result.status === 403) return res.status(403).json({ error: 'Only the raiser or someone who can triage may edit these fields' });
+    if (result.status === 409) return res.status(409).json({ error: result.error });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Failed to update raise details:', err);
+    res.status(500).json({ error: 'Failed to update raise details' });
+  }
+});
 
 // ---------- Success measure outcomes: was it met? ----------
 // One row per kpi_definition (kpi_outcome, migration 63). First

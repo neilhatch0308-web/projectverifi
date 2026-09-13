@@ -23,7 +23,7 @@ interface Raci {
   accountable_financial_name: string; accountable_scope_name: string;
   accountable_schedule_name: string; sponsor_name: string; benefit_owner_name: string;
 }
-interface StrategyLink { title: string; alignment_notes: string | null; }
+interface StrategyLink { strategic_goal_id: string; title: string; alignment_notes: string | null; }
 interface Assessment {
   assessed_cost: number | null; assessed_benefit: number | null;
   cost_confidence: string | null; benefit_confidence: string | null;
@@ -37,7 +37,7 @@ interface DemandDetail {
   confidential: boolean;
   raised_date: string; need_by_date: string | null; accepted_at: string | null;
   adoption_change_type: string | null; portfolio_name: string;
-  raised_by_name: string | null; sponsor_name: string | null;
+  raised_by: string; raised_by_name: string | null; sponsor_name: string | null;
   complexity_tier: string | null; cost_tier: string | null;
   date_driver_type: string | null; date_driver_detail: string | null;
   claimed_cost: number | null; claimed_benefit: number | null;
@@ -249,7 +249,16 @@ export function DemandDetail() {
   // the real originating page and its state (filters, sort, scroll
   // position) rather than always resetting to one hardcoded page.
   const canGoBack = location.key !== 'default';
-  const { has } = usePermissions();
+  const { has, userId } = usePermissions();
+  const [editingRaiseDetails, setEditingRaiseDetails] = useState(false);
+  const [raiseDetailsSaving, setRaiseDetailsSaving] = useState(false);
+  const [raiseDetailsError, setRaiseDetailsError] = useState<string | null>(null);
+  const [editAdoptionChangeType, setEditAdoptionChangeType] = useState('');
+  const [editDateDriverType, setEditDateDriverType] = useState('none');
+  const [editDateDriverDetail, setEditDateDriverDetail] = useState('');
+  const [editStrategicGoalId, setEditStrategicGoalId] = useState('');
+  const [editAlignmentNotes, setEditAlignmentNotes] = useState('');
+  const [strategicGoals, setStrategicGoals] = useState<{ id: string; name: string; status: string }[]>([]);
   const [demand, setDemand] = useState<DemandDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -440,6 +449,45 @@ export function DemandDetail() {
   useEffect(loadAuditTrail, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
   useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
+  useEffect(() => {
+    apiFetch('/api/strategic-goals')
+      .then((goals: { id: string; name: string; status: string }[]) => setStrategicGoals(goals.filter((g) => g.status === 'active')))
+      .catch(() => {});
+  }, []);
+  // Seed the edit form from the loaded demand once, when it arrives -
+  // not on every render, so typing isn't clobbered by a background reload.
+  useEffect(() => {
+    if (!demand) return;
+    setEditAdoptionChangeType(demand.adoption_change_type ?? '');
+    setEditDateDriverType(demand.date_driver_type ?? 'none');
+    setEditDateDriverDetail(demand.date_driver_detail ?? '');
+    setEditStrategicGoalId(demand.strategyLinks[0]?.strategic_goal_id ?? '');
+    setEditAlignmentNotes(demand.strategyLinks[0]?.alignment_notes ?? '');
+  }, [demand?.id]);
+
+  async function saveRaiseDetails() {
+    if (!id) return;
+    setRaiseDetailsSaving(true);
+    setRaiseDetailsError(null);
+    try {
+      await apiFetch(`/api/demands/${id}/raise-details`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          adoptionChangeType: editAdoptionChangeType || null,
+          dateDriverType: editDateDriverType,
+          dateDriverDetail: editDateDriverDetail.trim() || null,
+          strategicGoalId: editStrategicGoalId || null,
+          alignmentNotes: editAlignmentNotes.trim() || null,
+        }),
+      });
+      setEditingRaiseDetails(false);
+      load();
+    } catch (err) {
+      setRaiseDetailsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setRaiseDetailsSaving(false);
+    }
+  }
   useEffect(() => { if (demand?.status === 'promoted') loadDelivery(); }, [demand?.status]);
   useEffect(() => { if (demand?.confidential) loadConfidentialViewers(); }, [demand?.confidential]);
 
@@ -686,6 +734,72 @@ export function DemandDetail() {
           </div>
         </div>
       )}
+
+      {demand.status === 'raised' && (userId === demand.raised_by || has('demand.triage')) && (
+        <div className="goal-card" style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="goal-card__meta" style={{ margin: 0 }}>
+              Adoption type, date driver, and strategic goal - optional at raise, still changeable
+              while this demand hasn't been triaged yet
+            </div>
+            {!editingRaiseDetails && (
+              <button type="button" onClick={() => setEditingRaiseDetails(true)} className="btn btn--outline" style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0, marginLeft: 10 }}>
+                Edit
+              </button>
+            )}
+          </div>
+
+          {editingRaiseDetails && (
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Adoption change type</label>
+              <select value={editAdoptionChangeType} onChange={(e) => setEditAdoptionChangeType(e.target.value)}
+                style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                <option value="">Not set</option>
+                <option value="process">Process</option>
+                <option value="tool">Tool</option>
+                <option value="both">Both</option>
+              </select>
+
+              <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Date driver</label>
+              <select value={editDateDriverType} onChange={(e) => setEditDateDriverType(e.target.value)}
+                style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                <option value="none">None - freely deferrable</option>
+                {Object.entries(DATE_DRIVER_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+              {editDateDriverType !== 'none' && (
+                <textarea value={editDateDriverDetail} onChange={(e) => setEditDateDriverDetail(e.target.value)}
+                  placeholder="Detail - what's the external obligation?" rows={2}
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }} />
+              )}
+
+              <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Strategic goal</label>
+              <select value={editStrategicGoalId} onChange={(e) => setEditStrategicGoalId(e.target.value)}
+                style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                <option value="">No link - non-discretionary or unaligned</option>
+                {strategicGoals.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              {editStrategicGoalId && (
+                <textarea value={editAlignmentNotes} onChange={(e) => setEditAlignmentNotes(e.target.value)}
+                  placeholder="How does this align?" rows={2}
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--hairline)', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }} />
+              )}
+
+              {raiseDetailsError && <p className="login-error" style={{ fontSize: 12 }}>{raiseDetailsError}</p>}
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={saveRaiseDetails} disabled={raiseDetailsSaving} className="btn btn--outline" style={{ fontSize: 11, padding: '4px 10px' }}>
+                  {raiseDetailsSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button type="button" onClick={() => { setEditingRaiseDetails(false); setRaiseDetailsError(null); }}
+                  style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: '1.25rem' }}>
         <div className="goal-card" style={{ marginBottom: 0 }}>

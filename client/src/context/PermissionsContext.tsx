@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 
 interface PermissionsContextValue {
   permissions: string[];
+  userId: string | null;
   loading: boolean;
   has: (key: string) => boolean;
 }
@@ -19,18 +20,23 @@ const PermissionsContext = createContext<PermissionsContextValue | undefined>(un
 export function PermissionsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) {
       setPermissions([]);
+      setUserId(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     apiFetch('/api/me')
-      .then((data: { permissions: string[] }) => setPermissions(data.permissions ?? []))
-      .catch(() => setPermissions([]))
+      .then((data: { permissions: string[]; userId: string }) => {
+        setPermissions(data.permissions ?? []);
+        setUserId(data.userId ?? null);
+      })
+      .catch(() => { setPermissions([]); setUserId(null); })
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -39,7 +45,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PermissionsContext.Provider value={{ permissions, loading, has }}>
+    <PermissionsContext.Provider value={{ permissions, userId, loading, has }}>
       {children}
     </PermissionsContext.Provider>
   );
