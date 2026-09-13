@@ -23,7 +23,7 @@ export function ConfidentialityToggle({ hideConfidential, onToggle, hasConfident
       <button
         type="button"
         onClick={() => onToggle(!hideConfidential)}
-        className="pill pill--toggle"
+        className="toggle-pill"
         aria-pressed={hideConfidential}
         title={
           hideConfidential

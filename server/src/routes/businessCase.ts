@@ -320,6 +320,9 @@ router.put('/business-cases/:id/investment', requireAuth, requirePermission('bus
 
   try {
     const investment = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const existing = await client.query(`SELECT business_case_id, approved_amount FROM investment WHERE business_case_id = $1`, [id]);
 
       // approved_amount is the anchored baseline -- only log a revision
@@ -350,6 +353,7 @@ router.put('/business-cases/:id/investment', requireAuth, requirePermission('bus
       return result.rows[0];
     });
 
+    if (!investment) return res.status(404).json({ error: 'Business case not found' });
     res.json(investment);
   } catch (err) {
     if (err instanceof RevisionReasonRequiredError) return res.status(400).json({ error: err.message });
@@ -565,11 +569,14 @@ router.patch('/business-cases/:id/risks/:riskId', requireAuth, requirePermission
 // that was part of the decided case would remove it from the record
 // entirely rather than just changing it. Close it via status instead.
 router.delete('/business-cases/:id/risks/:riskId', requireAuth, requirePermission('business_case.edit'), async (req, res) => {
-  const { organizationId } = req.user!;
+  const { organizationId, userId } = req.user!;
   const { id, riskId } = req.params;
 
   try {
     const result = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return { notFound: true as const };
+
       const decision = await getBusinessCaseDecision(client, id);
       if (decision === 'approved') {
         return { blocked: true as const };
@@ -578,6 +585,7 @@ router.delete('/business-cases/:id/risks/:riskId', requireAuth, requirePermissio
       return { blocked: false as const };
     });
 
+    if ('notFound' in result) return res.status(404).json({ error: 'Business case not found' });
     if (result.blocked) {
       return res.status(409).json({ error: 'Risks cannot be deleted once the business case is approved. Set its status to closed instead.' });
     }
@@ -648,6 +656,9 @@ router.put('/business-cases/:id/finance-impact-assessment', requireAuth, require
 
   try {
     const fia = await withTenantContext(organizationId, async (client) => {
+      const canAccess = await assertCanAccessBusinessCase(client, id, userId);
+      if (!canAccess) return null;
+
       const existing = await client.query(
         `SELECT id FROM finance_impact_assessment WHERE business_case_id = $1`, [id]
       );
@@ -693,6 +704,7 @@ router.put('/business-cases/:id/finance-impact-assessment', requireAuth, require
       return result.rows[0];
     });
 
+    if (!fia) return res.status(404).json({ error: 'Business case not found' });
     res.json(fia);
   } catch (err) {
     console.error('Failed to save finance impact assessment:', err);
