@@ -38,6 +38,7 @@ const navGroups: NavGroup[] = [
     collapsible: true,
     items: [
       { to: '/home', label: 'My Home' },
+      { to: '/my-portfolio', label: 'My Portfolio' },
     ],
   },
   {
@@ -61,6 +62,7 @@ const navGroups: NavGroup[] = [
       { to: '/portfolio-report', label: 'Portfolio report', requiresAny: ['budgets.view', 'budgets.manage'] },
       { to: '/variance-report', label: 'Variance report', requiresAny: ['budgets.view', 'budgets.manage'] },
       { to: '/aging-report', label: 'Aging report', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/commitment-report', label: 'Commitment report', requiresAny: ['budgets.view', 'budgets.manage'] },
     ],
   },
   {

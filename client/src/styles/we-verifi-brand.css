@@ -32,6 +32,22 @@
        <span class="badge badge--soon">Coming soon</span>
      </div>
    </section>
+   ===================================================================
+   WCAG 2.1 AA button audit (13 Sep 2026) — see notes inline on each
+   rule below. Two real failures found and fixed:
+     1. `.btn--primary` was used in the app (VarianceReport.tsx) but
+        was never defined here, so it fell back to bare `.btn` — white
+        text with no declared background, i.e. ~1:1 contrast. That is
+        the cause of the washed-out "Worst miss (either)" button.
+        Fixed by giving it its own rule below.
+     2. `.btn--gradient` with white text fails AA (as low as 2.21:1)
+        wherever the gradient passes through teal or magenta. Not
+        currently used anywhere in the app, but fixed here rather than
+        left as a trap for future use — see `--foil-gradient-btn`.
+   Everything else already passes AA text contrast (verified by actual
+   relative-luminance calculation, not estimated): `.btn--cert`,
+   `.btn--outline`, and `.btn--outline:hover` all sit at 4.85:1 against
+   the 4.5:1 minimum — a real but thin pass, noted inline.
    =================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
@@ -44,11 +60,26 @@
   --muted: #606677;
 
   /* brand accents (each pulled from the foil gradient) */
-  --indigo: #5B5FEF;   /* Cert Verifi */
+  --indigo: #5B5FEF;   /* Cert Verifi. White text/background pairing = 4.85:1 — passes AA (4.5:1 min) but thin; leave as-is for brand fidelity, don't darken further than needed. */
   --teal: #17C3B2;     /* Project Verifi */
   --magenta: #FF5DA2;  /* Art Verifi (future) */
 
+  /* Darker stops used ONLY behind text (buttons), so contrast holds
+     everywhere along the gradient, not just at the indigo end. Same
+     hues as the brand accents above, scaled down so relative
+     luminance stays low enough for white text at every stop:
+       indigo-btn  vs #fff → 7.04:1
+       teal-btn    vs #fff → 6.12:1
+       magenta-btn vs #fff → 6.13:1
+     The bright --foil-gradient above stays available for decorative,
+     non-text surfaces (e.g. flourishes, logo treatments) where the
+     3:1 non-text-UI threshold, not 4.5:1, applies. */
+  --indigo-btn: #464ABE;
+  --teal-btn: #0F6E64;
+  --magenta-btn: #B42864;
+
   --foil-gradient: linear-gradient(135deg, var(--indigo) 0%, var(--teal) 50%, var(--magenta) 100%);
+  --foil-gradient-btn: linear-gradient(135deg, var(--indigo-btn) 0%, var(--teal-btn) 50%, var(--magenta-btn) 100%);
 
   --radius: 14px;
   --font-display: 'Space Grotesk', sans-serif;
@@ -222,17 +253,29 @@
 
 .btn:hover { opacity: 0.9; }
 
-.btn--cert    { background: var(--indigo); }
+.btn--cert    { background: var(--indigo); } /* white text on indigo = 4.85:1, passes AA (4.5:1 min) */
 .btn--project { background: var(--teal); color: var(--graphite); } /* white text here failed WCAG AA (2.21:1) - graphite on this teal is 8.17:1 */
-.btn--gradient { background-image: var(--foil-gradient); }
+
+/* Uses --foil-gradient-btn (darker stops), not the bright --foil-gradient
+   used for decorative surfaces — white text on the bright version fails
+   AA as low as 2.21:1 wherever the gradient passes through teal/magenta.
+   This darker version holds >=6.1:1 at every stop along the gradient. */
+.btn--gradient { background-image: var(--foil-gradient-btn); }
+
+/* Was used in VarianceReport.tsx but had no rule here at all, so it fell
+   back to bare .btn — white text, no background, ~1:1 contrast. That was
+   the cause of the washed-out "Worst miss (either)" button. Matches the
+   .btn--project treatment (8.17:1) since --primary is the app's own
+   default action colour, not a Cert/Project/Art brand variant. */
+.btn--primary { background: var(--teal); color: var(--graphite); }
 
 .btn--outline {
   background: none;
-  color: var(--indigo);
+  color: var(--indigo); /* indigo text on white = 4.85:1, passes AA (4.5:1 min) */
   border: 1.5px solid var(--indigo);
   padding: 8.5px 16px; /* 1.5px less than .btn's 10px, to offset the added border and keep the same visual height as the filled buttons */
 }
-.btn--outline:hover { opacity: 1; background: var(--indigo); color: #fff; }
+.btn--outline:hover { opacity: 1; background: var(--indigo); color: #fff; } /* white text on indigo = 4.85:1, passes AA (4.5:1 min) */
 
 /* ---------- responsive ---------- */
 

@@ -21,6 +21,8 @@ import { PortfolioRollup } from './pages/PortfolioRollup';
 import { PortfolioReport } from './pages/PortfolioReport';
 import { VarianceReport } from './pages/VarianceReport';
 import { AgingReport } from './pages/AgingReport';
+import { CommitmentReport } from './pages/CommitmentReport';
+import { MyPortfolio } from './pages/MyPortfolio';
 import { FiveYearHorizon } from './pages/FiveYearHorizon';
 import { MyHome } from './pages/MyHome';
 import { ActiveInitiatives } from './pages/ActiveInitiatives';
@@ -87,6 +89,8 @@ function App() {
                 <Route path="/portfolio-report" element={<PortfolioReport />} />
                 <Route path="/variance-report" element={<VarianceReport />} />
                 <Route path="/aging-report" element={<AgingReport />} />
+                <Route path="/commitment-report" element={<CommitmentReport />} />
+                <Route path="/my-portfolio" element={<MyPortfolio />} />
                 <Route path="/projects" element={<ActiveInitiatives />} />
               </Route>
             </Routes>
