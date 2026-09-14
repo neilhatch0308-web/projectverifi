@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
 import { useDraft } from '../lib/useDraft';
 import { promotedDemandLabel } from '../lib/promotedDemandLabel';
+import { DemandStageStepper } from '../lib/stageStepper';
 
 interface Criterion {
   id: string; name: string; dimension: string; unit: string | null;
@@ -708,7 +709,7 @@ export function DemandDetail() {
         </div>
       )}
       <p className="page-subtitle">
-        {demand.portfolio_name} (raised)
+        {demand.portfolio_name} ({demand.status === 'promoted' ? promotedDemandLabel(demand).toLowerCase() : demand.status})
         {demand.raised_by_name && <> &middot; conceived by {demand.raised_by_name}</>}
         {demand.sponsor_name && <> &middot; sponsor {demand.sponsor_name}</>}
       </p>
@@ -716,6 +717,8 @@ export function DemandDetail() {
         raised {new Date(demand.raised_date).toLocaleDateString()}
         {demand.need_by_date && <> &middot; needed by {new Date(demand.need_by_date).toLocaleDateString()}</>}
       </p>
+
+      <DemandStageStepper demand={demand} />
 
       {demand.date_driver_type && demand.date_driver_type !== 'none' && (
         <div style={{

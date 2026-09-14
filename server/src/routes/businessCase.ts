@@ -122,9 +122,20 @@ router.get('/business-cases/:id', requireAuth, requirePermission('business_case.
                 bc.demand_id, bc.executive_summary, bc.problem_statement,
                 p.name AS portfolio_name,
                 sponsor.display_name AS sponsor_name,
-                submitter.display_name AS submitted_by_name
+                submitter.display_name AS submitted_by_name,
+                d.status AS demand_status,
+                d.stop_reason,
+                CASE
+                  WHEN dd.benefit_realized_at IS NOT NULL THEN 'benefit_realized'
+                  WHEN dd.adoption_measured_at IS NOT NULL THEN 'adoption_measured'
+                  WHEN dd.delivery_completed_at IS NOT NULL THEN 'delivery_completed'
+                  WHEN dd.delivery_started_at IS NOT NULL THEN 'delivery_started'
+                  ELSE NULL
+                END AS delivery_stage
          FROM business_case bc
          JOIN portfolio p ON p.id = bc.portfolio_id
+         JOIN demand d ON d.id = bc.demand_id
+         LEFT JOIN demand_delivery dd ON dd.demand_id = bc.demand_id
          LEFT JOIN app_user sponsor ON sponsor.id = bc.sponsor_user_id
          LEFT JOIN app_user submitter ON submitter.id = bc.submitted_by
          WHERE bc.id = $1`,

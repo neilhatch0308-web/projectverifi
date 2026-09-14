@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiFetch, apiDownload } from '../lib/apiClient';
 import { usePermissions } from '../context/PermissionsContext';
+import { DemandStageStepper } from '../lib/stageStepper';
 
 interface Raci {
   accountable_financial_name: string; accountable_scope_name: string;
@@ -52,6 +53,10 @@ interface BusinessCase {
   raci: Raci | null; investment: Investment | null; benefits: Benefit[];
   strategicGoal: StrategicGoal | null; estimate: Estimate | null; risks: Risk[];
   governance: Governance; financeImpactAssessment: FinanceImpactAssessment | null;
+  demand_id: string;
+  demand_status: string;
+  stop_reason: string | null;
+  delivery_stage: 'delivery_started' | 'delivery_completed' | 'adoption_measured' | 'benefit_realized' | null;
 }
 
 interface User { id: string; display_name: string; }
@@ -373,7 +378,7 @@ export function BusinessCaseDetail() {
         </div>
       )}
       {bc.title && (
-        <Link to={`/demand`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to All Demand</Link>
+        <Link to={`/demand/${bc.demand_id}`} style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'none' }}>&larr; Back to demand</Link>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 12 }}>
@@ -388,12 +393,18 @@ export function BusinessCaseDetail() {
         {bc.submitted_by_name && <> &middot; submitted by {bc.submitted_by_name}</>}
       </p>
 
-      {bc.decision && bc.decision !== 'pending' && (
-        <div style={{ marginBottom: '1.25rem' }}>
-          <span className={`pill ${bc.decision === 'approved' ? 'pill--teal' : 'pill--muted'}`} style={{ textTransform: 'capitalize' }}>
-            {bc.decision} {bc.decision_date && `on ${new Date(bc.decision_date).toLocaleDateString()}`}
-          </span>
-        </div>
+      <DemandStageStepper
+        demand={{
+          status: bc.demand_status,
+          business_case_decision: bc.decision,
+          delivery_stage: bc.delivery_stage,
+          stop_reason: bc.stop_reason,
+        }}
+      />
+      {bc.decision && bc.decision !== 'pending' && bc.decision_date && (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: -14, marginBottom: '1.25rem' }}>
+          Decided {new Date(bc.decision_date).toLocaleDateString()}
+        </p>
       )}
 
       <div className="goal-card" style={{ marginBottom: '1.25rem' }}>

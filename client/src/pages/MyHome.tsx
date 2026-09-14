@@ -151,7 +151,7 @@ export function MyHome() {
           <div>
             <CollapsibleSection title="My Actions" count={totalActions} variant="section">
               {visibleTriage.length > 0 && (
-                <CollapsibleSection title="Needs triage" count={visibleTriage.length}>
+                <CollapsibleSection title="Needs triage" count={visibleTriage.length} defaultOpen={false}>
                   {visibleTriage.map((item) => (
                     <ActionRow key={item.id} item={item} actionLabel="Triage" to={`/demand/${item.id}`} />
                   ))}
@@ -159,7 +159,7 @@ export function MyHome() {
               )}
 
               {visibleAssessment.length > 0 && (
-                <CollapsibleSection title="Needs P75 assessment" count={visibleAssessment.length}>
+                <CollapsibleSection title="Needs P75 assessment" count={visibleAssessment.length} defaultOpen={false}>
                   {visibleAssessment.map((item) => (
                     <ActionRow key={item.id} item={item} actionLabel="Assess" to={`/demand/${item.id}/assess`} />
                   ))}

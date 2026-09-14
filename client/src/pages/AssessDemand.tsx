@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/apiClient';
 import { useDraft } from '../lib/useDraft';
+import { DemandStageStepper } from '../lib/stageStepper';
 
 interface DemandSummary {
   id: string;
@@ -15,6 +16,14 @@ interface DemandSummary {
   target_start_year: number | null;
   target_start_quarter: number | null;
   target_year_locked_agreed: boolean;
+  // Already returned by GET /api/demands/:id (see DemandDetail.tsx) -
+  // added here so this page's stepper can never disagree with Demand
+  // Detail's. Always null/pending while status is pre-promotion, but
+  // typed anyway so the same DemandSummary shape works if this page is
+  // ever reached at a later stage.
+  business_case_decision: string | null;
+  delivery_stage: 'delivery_started' | 'delivery_completed' | 'adoption_measured' | 'benefit_realized' | null;
+  stop_reason: string | null;
 }
 
 const CAPACITIES = [
@@ -160,6 +169,8 @@ export function AssessDemand() {
       <p className="page-subtitle">
         {demand.title} &middot; {demand.portfolio_name}
       </p>
+
+      <DemandStageStepper demand={demand} />
 
       <div className="goal-card" style={{ marginBottom: '1.5rem', background: 'var(--cloud)' }}>
         <div className="goal-card__meta">The claim being assessed</div>
