@@ -44,14 +44,22 @@ const navGroups: NavGroup[] = [
   {
     label: 'Organisation',
     collapsible: true,
+    defaultOpen: true,
     items: [
-      { to: '/demand', label: 'All demand' },
-      { to: '/planning', label: 'Annual planning', requiresAny: ['planning.view', 'planning.edit'] },
-      { to: '/horizon', label: 'Five-year horizon', requires: 'planning.edit' },
-      { to: '/goals', label: 'Strategic goals' },
-      { to: '/budgets', label: 'Portfolio budgets', requiresAny: ['budgets.view', 'budgets.manage'] },
-      { to: '/portfolio-admin', label: 'Portfolio config', requires: 'org.manage' },
-      { to: '/governance-tiers', label: 'Governance tiers', requires: 'org.manage' },
+      { to: '/demand', label: 'All Demand' },
+      { to: '/planning', label: 'Annual Planning', requiresAny: ['planning.view', 'planning.edit'] },
+      { to: '/horizon', label: 'Five-year Horizon', requires: 'planning.edit' },
+      { to: '/goals', label: 'Strategic Goals' },
+    ],
+  },
+  {
+    label: 'Portfolio',
+    collapsible: true,
+    defaultOpen: false,
+    items: [
+      { to: '/budgets', label: 'Portfolio Budgets', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/portfolio-admin', label: 'Portfolio Config', requires: 'org.manage' },
+      { to: '/governance-tiers', label: 'Governance Tiers', requires: 'org.manage' },
     ],
   },
   {
@@ -59,22 +67,24 @@ const navGroups: NavGroup[] = [
     collapsible: true,
     defaultOpen: false,
     items: [
-      { to: '/portfolio-report', label: 'Portfolio report', requiresAny: ['budgets.view', 'budgets.manage'] },
-      { to: '/variance-report', label: 'Variance report', requiresAny: ['budgets.view', 'budgets.manage'] },
-      { to: '/aging-report', label: 'Aging report', requiresAny: ['budgets.view', 'budgets.manage'] },
-      { to: '/commitment-report', label: 'Commitment report', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/portfolio-report', label: 'Portfolio Report', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/variance-report', label: 'Variance Report', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/aging-report', label: 'Aging Report', requiresAny: ['budgets.view', 'budgets.manage'] },
+      { to: '/commitment-report', label: 'Commitment Report', requiresAny: ['budgets.view', 'budgets.manage'] },
     ],
   },
   {
     label: 'Live projects',
     collapsible: true,
+    defaultOpen: false,
     items: [
-      { to: '/projects', label: 'Active initiatives', requiresAny: ['delivery.view', 'delivery.edit'] },
+      { to: '/projects', label: 'Active Initiatives', requiresAny: ['delivery.view', 'delivery.edit'] },
     ],
   },
   {
     label: 'Admin',
     collapsible: true,
+    defaultOpen: false,
     items: [
       { to: '/roles', label: 'Roles', requires: 'users.manage' },
       { to: '/users', label: 'Users', requires: 'users.manage' },
