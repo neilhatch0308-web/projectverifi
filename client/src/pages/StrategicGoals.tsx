@@ -10,7 +10,11 @@ interface Goal {
   status: 'active' | 'suspended' | 'completed';
   declared_at: string;
   status_changed_at: string | null;
+  portfolio_id: string | null;
+  portfolio_name: string | null;
 }
+
+interface Portfolio { id: string; name: string; }
 
 const STATUS_PILL: Record<string, string> = {
   active: 'pill--teal',
@@ -33,16 +37,20 @@ const NEXT_ACTIONS: Record<string, { label: string; target: string }[]> = {
 export function StrategicGoals() {
   const { has } = usePermissions();
   const canManage = has('org.manage');
+
   const currentCalendarYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentCalendarYear);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  // '' means corporate (org-wide). Otherwise a parent portfolio's id.
+  const [newPortfolioId, setNewPortfolioId] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -61,6 +69,7 @@ export function StrategicGoals() {
         setAvailableYears(combined);
       })
       .catch(() => setAvailableYears([currentCalendarYear]));
+    apiFetch('/api/portfolios').then(setPortfolios).catch(() => {});
   }, []);
 
   useEffect(() => loadGoals(selectedYear), [selectedYear]);
@@ -72,10 +81,16 @@ export function StrategicGoals() {
     try {
       await apiFetch('/api/strategic-goals', {
         method: 'POST',
-        body: JSON.stringify({ name: newName, description: newDescription || undefined, goalYear: selectedYear }),
+        body: JSON.stringify({
+          name: newName,
+          description: newDescription || undefined,
+          goalYear: selectedYear,
+          portfolioId: newPortfolioId || undefined,
+        }),
       });
       setNewName('');
       setNewDescription('');
+      setNewPortfolioId('');
       setShowAddForm(false);
       loadGoals(selectedYear);
     } catch (err) {
@@ -97,18 +112,56 @@ export function StrategicGoals() {
     }
   }
 
-  const openSlots = 5 - goals.length;
+  const corporateGoals = goals.filter((g) => g.portfolio_id === null);
+  // Group portfolio goals under their owning portfolio, ordered the same
+  // way the portfolio list itself is, so the page doesn't reshuffle as
+  // goals are added.
+  const portfolioGroups = portfolios
+    .map((p) => ({ portfolio: p, goals: goals.filter((g) => g.portfolio_id === p.id) }))
+    .filter((group) => group.goals.length > 0);
+
+  function renderGoal(g: Goal) {
+    return (
+      <div key={g.id} className="goal-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="goal-card__name">{g.name}</div>
+          <span className={`pill ${STATUS_PILL[g.status]}`} style={{ textTransform: 'capitalize' }}>{g.status}</span>
+        </div>
+        <div className="goal-card__meta">
+          Declared {new Date(g.declared_at).toLocaleDateString()}
+          {g.status_changed_at && ` \u00b7 status changed ${new Date(g.status_changed_at).toLocaleDateString()}`}
+        </div>
+        {g.description && <div className="goal-card__desc" style={{ marginTop: 6 }}>{g.description}</div>}
+        {canManage && NEXT_ACTIONS[g.status].length > 0 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            {NEXT_ACTIONS[g.status].map((action) => (
+              <button
+                key={action.target}
+                onClick={() => changeStatus(g.id, action.target)}
+                className="btn btn--outline"
+                style={{ fontSize: 12, padding: '5px 10px' }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 className="page-title">Strategic Goals</h1>
-          <p className="page-subtitle">Top 5 corporate goals, declared annually - locked once declared, status can still change</p>
+          <h1 className="page-title">Objectives</h1>
+          <p className="page-subtitle">
+            Corporate objectives, and the more granular portfolio objectives beneath them - locked once declared, status can still change
+          </p>
         </div>
-        {canManage && openSlots > 0 && (
+        {canManage && (
           <button onClick={() => setShowAddForm((s) => !s)} className="btn btn--project">
-            + Add goal
+            + Add objective
           </button>
         )}
       </div>
@@ -122,13 +175,27 @@ export function StrategicGoals() {
         >
           {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{goals.length} of 5 slots declared</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {corporateGoals.length} corporate
+          {goals.length - corporateGoals.length > 0 && ` \u00b7 ${goals.length - corporateGoals.length} portfolio`}
+        </span>
       </div>
 
       {showAddForm && (
         <form onSubmit={handleAdd} className="goal-card" style={{ marginBottom: '1.25rem' }}>
           <div className="login-field">
-            <label>Goal name</label>
+            <label>Scope</label>
+            <select
+              value={newPortfolioId}
+              onChange={(e) => setNewPortfolioId(e.target.value)}
+              style={{ width: '100%', padding: 10, border: '1px solid var(--hairline)', borderRadius: 9, fontSize: 14 }}
+            >
+              <option value="">Corporate - applies across the organisation</option>
+              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="login-field">
+            <label>Objective name</label>
             <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
               placeholder="e.g. Grow Latin America market" required />
           </div>
@@ -151,41 +218,17 @@ export function StrategicGoals() {
 
       {!loading && !error && (
         <>
-          {goals.map((g) => (
-            <div key={g.id} className="goal-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div className="goal-card__name">{g.name}</div>
-                <span className={`pill ${STATUS_PILL[g.status]}`} style={{ textTransform: 'capitalize' }}>{g.status}</span>
-              </div>
-              <div className="goal-card__meta">
-                Declared {new Date(g.declared_at).toLocaleDateString()}
-                {g.status_changed_at && ` \u00b7 status changed ${new Date(g.status_changed_at).toLocaleDateString()}`}
-              </div>
-              {g.description && <div className="goal-card__desc" style={{ marginTop: 6 }}>{g.description}</div>}
+          <div className="goal-card__meta" style={{ marginBottom: 8 }}>Corporate</div>
+          {corporateGoals.length > 0
+            ? corporateGoals.map(renderGoal)
+            : <div className="goal-slot-empty">No corporate objectives declared for {selectedYear}</div>}
 
-              {canManage && NEXT_ACTIONS[g.status].length > 0 && (
-                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                  {NEXT_ACTIONS[g.status].map((action) => (
-                    <button
-                      key={action.target}
-                      onClick={() => changeStatus(g.id, action.target)}
-                      className="btn btn--outline"
-                      style={{ fontSize: 12, padding: '5px 10px' }}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+          {portfolioGroups.map((group) => (
+            <div key={group.portfolio.id} style={{ marginTop: '1.5rem' }}>
+              <div className="goal-card__meta" style={{ marginBottom: 8 }}>{group.portfolio.name}</div>
+              {group.goals.map(renderGoal)}
             </div>
           ))}
-
-          {openSlots > 0 &&
-            Array.from({ length: openSlots }).map((_, i) => (
-              <div key={`empty-${i}`} className="goal-slot-empty">
-                Open slot - {goals.length + i + 1} of 5
-              </div>
-            ))}
         </>
       )}
     </div>

@@ -5,7 +5,14 @@ import { apiFetch } from '../lib/apiClient';
 interface Portfolio { id: string; name: string; }
 interface SubPortfolio { id: string; name: string; parent_id: string; parent_name: string; }
 interface User { id: string; display_name: string; role: string; is_senior: boolean; }
-interface StrategicGoal { id: string; name: string; description: string | null; status: string; }
+interface StrategicGoal {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  portfolio_id: string | null;
+  portfolio_name: string | null;
+}
 
 interface ScoringCriterion {
   id: string;
@@ -181,11 +188,33 @@ export function RaiseDemand() {
     apiFetch('/api/portfolios').then(setPortfolios).catch((err) => setError(err.message));
     apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch((err) => setError(err.message));
     apiFetch('/api/users').then(setUsers).catch((err) => setError(err.message));
-    apiFetch('/api/strategic-goals')
-      .then((goals: StrategicGoal[]) => setStrategicGoals(goals.filter((g) => g.status === 'active')))
-      .catch(() => {});
     apiFetch('/api/scoring-criteria').then(setScoringCriteria).catch((err) => setError(err.message));
   }, []);
+
+// Goals are refetched whenever the raising portfolio changes: a demand
+// can link to a corporate objective or one owned by its own raising
+// portfolio, nothing else. Scoped to the current year too - with the
+// 5-per-year cap gone, an unfiltered list would grow without bound.
+useEffect(() => {
+  if (!portfolioId) {
+    setStrategicGoals([]);
+    return;
+  }
+  const goalYear = new Date().getFullYear();
+  apiFetch(`/api/strategic-goals?year=${goalYear}&portfolio=${portfolioId}`)
+    .then((goals: StrategicGoal[]) => setStrategicGoals(goals.filter((g) => g.status === 'active')))
+    .catch(() => setStrategicGoals([]));
+}, [portfolioId]);
+
+// A goal picked before the portfolio changed may no longer be valid
+// against the new one - clear it rather than silently submitting a
+// link the server would reject.
+useEffect(() => {
+  if (strategicGoalId && !strategicGoals.some((g) => g.id === strategicGoalId)) {
+    setStrategicGoalId('');
+    setAlignmentNotes('');
+  }
+}, [strategicGoals]);
 
   function toggleDimension(dim: Criterion['dimension']) {
     setSelectedDimensions((prev) => {
@@ -517,21 +546,36 @@ export function RaiseDemand() {
         </div>
 
         <div className="login-field" style={{ marginTop: '1.25rem' }}>
-          <label>Linked strategic goal (optional)</label>
-          <select value={strategicGoalId} onChange={(e) => setStrategicGoalId(e.target.value)} style={selectStyle}>
-            <option value="">No link</option>
-            {strategicGoals.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-          {strategicGoalId && (
-            <input
-              type="text"
-              placeholder="Why does this demand support that goal?"
-              value={alignmentNotes}
-              onChange={(e) => setAlignmentNotes(e.target.value)}
-              style={{ marginTop: 8 }}
-            />
-          )}
-        </div>
+             <label>Linked objective (optional)</label>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 6px' }}>
+            {portfolioId
+            ? 'Corporate objectives, plus those belonging to the raising portfolio.'
+      : 'Pick a raising portfolio first to see which objectives apply.'}
+            </p>
+    <select
+    value={strategicGoalId}
+    onChange={(e) => setStrategicGoalId(e.target.value)}
+    disabled={!portfolioId}
+    style={selectStyle}
+  >
+    <option value="">No link</option>
+    {strategicGoals.filter((g) => g.portfolio_id === null).map((g) => (
+      <option key={g.id} value={g.id}>Corporate - {g.name}</option>
+    ))}
+    {strategicGoals.filter((g) => g.portfolio_id !== null).map((g) => (
+      <option key={g.id} value={g.id}>{g.portfolio_name} - {g.name}</option>
+    ))}
+  </select>
+  {strategicGoalId && (
+    <input
+      type="text"
+      placeholder="Why does this demand support that objective?"
+      value={alignmentNotes}
+      onChange={(e) => setAlignmentNotes(e.target.value)}
+      style={{ marginTop: 8 }}
+    />
+  )}
+</div>
 
         {/* ---------- Weighted priority scoring ---------- */}
         <div style={{ marginTop: '1.75rem', marginBottom: '0.75rem' }}>
