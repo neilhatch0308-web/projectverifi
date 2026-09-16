@@ -186,10 +186,35 @@ export function RaiseDemand() {
 
   useEffect(() => {
     apiFetch('/api/portfolios').then(setPortfolios).catch((err) => setError(err.message));
-    apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch((err) => setError(err.message));
     apiFetch('/api/users').then(setUsers).catch((err) => setError(err.message));
     apiFetch('/api/scoring-criteria').then(setScoringCriteria).catch((err) => setError(err.message));
   }, []);
+
+// Sub-portfolios are scoped to the raising portfolio, same reasoning as
+// the goals refetch below: at raise time there's no legitimate reason to
+// deliver via a sub-portfolio that doesn't belong to the portfolio the
+// demand is being raised against. (Demand Detail's later reassignment
+// dropdown intentionally allows cross-portfolio moves - that's a
+// different, deliberate capability - but the initial pick here shouldn't
+// default to showing every sub-portfolio in the org.)
+useEffect(() => {
+  if (!portfolioId) {
+    setSubPortfolios([]);
+    return;
+  }
+  apiFetch(`/api/portfolios/${portfolioId}/sub-portfolios`)
+    .then(setSubPortfolios)
+    .catch(() => setSubPortfolios([]));
+}, [portfolioId]);
+
+// A sub-portfolio picked before the portfolio changed may belong to the
+// old portfolio - clear it rather than silently submitting a delivering
+// sub-portfolio that doesn't match the new raising portfolio.
+useEffect(() => {
+  if (deliveringSubPortfolioId && !subPortfolios.some((s) => s.id === deliveringSubPortfolioId)) {
+    setDeliveringSubPortfolioId('');
+  }
+}, [subPortfolios]);
 
 // Goals are refetched whenever the raising portfolio changes: a demand
 // can link to a corporate objective or one owned by its own raising
@@ -385,9 +410,14 @@ useEffect(() => {
           </div>
           <div className="login-field">
             <label>Delivering sub-portfolio (optional)</label>
-            <select value={deliveringSubPortfolioId} onChange={(e) => setDeliveringSubPortfolioId(e.target.value)} style={selectStyle}>
+            <select
+              value={deliveringSubPortfolioId}
+              onChange={(e) => setDeliveringSubPortfolioId(e.target.value)}
+              disabled={!portfolioId}
+              style={selectStyle}
+            >
               <option value="">Not yet categorised</option>
-              {subPortfolios.map((s) => <option key={s.id} value={s.id}>{s.parent_name} / {s.name}</option>)}
+              {subPortfolios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div className="login-field">

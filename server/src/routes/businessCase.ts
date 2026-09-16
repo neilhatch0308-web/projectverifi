@@ -559,9 +559,9 @@ router.patch('/business-cases/:id/risks/:riskId', requireAuth, requirePermission
            status = COALESCE($1, status),
            mitigation = COALESCE($2, mitigation),
            updated_at = now()
-         WHERE id = $3
+         WHERE id = $3 AND business_case_id = $4
          RETURNING id, description, category, likelihood, impact, mitigation, status`,
-        [status ?? null, mitigation ?? null, riskId]
+        [status ?? null, mitigation ?? null, riskId, id]
       );
       return result.rows[0];
     });
@@ -592,7 +592,7 @@ router.delete('/business-cases/:id/risks/:riskId', requireAuth, requirePermissio
       if (decision === 'approved') {
         return { blocked: true as const };
       }
-      await client.query(`DELETE FROM business_case_risk WHERE id = $1`, [riskId]);
+      await client.query(`DELETE FROM business_case_risk WHERE id = $1 AND business_case_id = $2`, [riskId, id]);
       return { blocked: false as const };
     });
 

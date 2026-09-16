@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { getAuth } from 'firebase-admin/auth';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
@@ -277,15 +278,35 @@ router.put('/users/:id/roles', requireAuth, requirePermission('users.manage'), a
   const { roleIds } = parsed.data;
 
   try {
-    await withTenantContext(organizationId, async (client) => {
+    const result = await withTenantContext(organizationId, async (client) => {
+      // app_user_role has no organization_id column of its own and no RLS
+      // policy - it's protected only by every caller confirming the target
+      // user belongs to this org first. Without this check, an admin could
+      // pass any user id (from any org) and silently overwrite that user's
+      // entire role set - a cross-tenant privilege-management hole, not
+      // just a read leak. app_user itself IS RLS'd, so this SELECT returns
+      // nothing for a cross-tenant id.
+      const target = await client.query(`SELECT id FROM app_user WHERE id = $1`, [id]);
+      if (target.rows.length === 0) return { notFound: true as const };
+
+      // role IS RLS'd, so this only matches roleIds that genuinely belong
+      // to this org - silently drops anything else rather than trusting
+      // the client-supplied list at face value.
+      const validRoles = roleIds.length
+        ? (await client.query(`SELECT id FROM role WHERE id = ANY($1::uuid[])`, [roleIds])).rows.map((r) => r.id)
+        : [];
+
       await client.query(`DELETE FROM app_user_role WHERE user_id = $1`, [id]);
-      for (const roleId of roleIds) {
+      for (const roleId of validRoles) {
         await client.query(
           `INSERT INTO app_user_role (user_id, role_id, granted_by) VALUES ($1, $2, $3)`,
           [id, roleId, grantedBy]
         );
       }
+      return { notFound: false as const };
     });
+
+    if (result.notFound) return res.status(404).json({ error: 'User not found' });
     res.status(200).json({ userId: id, roleIds });
   } catch (err) {
     console.error('Failed to set user roles:', err);
@@ -325,7 +346,15 @@ router.post('/users', requireAuth, requirePermission('users.manage'), async (req
   let firebaseUid: string | null = null;
 
   try {
-    const randomPassword = `Tmp-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}!`;
+    // Math.random() is not a CSPRNG and Date.now() is guessable to within
+    // seconds of the account-creation timestamp shown right in the UI -
+    // combined, this was a brute-forceable temp password, the exact
+    // weakness this codebase's own password-reset flow was built to avoid
+    // (see passwordReset.ts). New accounts should go through the real
+    // reset flow to set their first real password anyway, so this value
+    // is never meant to be used - it just needs to be unguessable until
+    // then.
+    const randomPassword = `Tmp-${crypto.randomBytes(24).toString('base64url')}`;
     const firebaseUser = await getAuth().createUser({ email, displayName, password: randomPassword, emailVerified: false });
     firebaseUid = firebaseUser.uid;
 
@@ -338,7 +367,14 @@ router.post('/users', requireAuth, requirePermission('users.manage'), async (req
       );
       const user = result.rows[0];
 
-      for (const roleId of roleIds) {
+      // Same org-scoping check as PUT /users/:id/roles - role IS RLS'd, so
+      // this silently drops any submitted roleId that doesn't genuinely
+      // belong to this org rather than trusting the client-supplied list.
+      const validRoles = roleIds.length
+        ? (await client.query(`SELECT id FROM role WHERE id = ANY($1::uuid[])`, [roleIds])).rows.map((r) => r.id)
+        : [];
+
+      for (const roleId of validRoles) {
         await client.query(
           `INSERT INTO app_user_role (user_id, role_id, granted_by) VALUES ($1, $2, $3)`,
           [user.id, roleId, grantedBy]

@@ -19,7 +19,8 @@
    <section class="product-grid">
      <a href="https://certs.we-verifi.co.uk" class="product-card product-card--cert">
        <img src="/assets/cert-verifi-logo.svg" alt="Cert Verifi" class="product-card__logo">
-       <p class="product-card__desc">Issue and verify digital certificates at scale.</p>
+       <p class="product-card__desc">Issue and verify
+        digital certificates at scale.</p>
        <span class="btn btn--cert">Visit Cert Verifi →</span>
      </a>
      <a href="https://project.we-verifi.co.uk" class="product-card product-card--project">

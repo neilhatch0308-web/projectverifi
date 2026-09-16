@@ -144,7 +144,7 @@ router.get('/demands/:id', requireAuth, async (req, res) => {
                   WHERE api.demand_id = d.id AND ap.status = 'agreed'
                 ) AS target_year_locked_agreed,
                 d.assigned_assessor_id, assigned_assessor.display_name AS assigned_assessor_name,
-                p.name AS portfolio_name,
+                p.id AS portfolio_id, p.name AS portfolio_name,
                 sub.name AS delivering_sub_portfolio_name,
                 subparent.name AS delivering_parent_portfolio_name,
                 d.delivering_sub_portfolio_id,

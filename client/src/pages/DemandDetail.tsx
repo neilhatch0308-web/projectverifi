@@ -37,7 +37,7 @@ interface DemandDetail {
   id: string; title: string; description: string; outcome_statement: string; status: string;
   confidential: boolean;
   raised_date: string; need_by_date: string | null; accepted_at: string | null;
-  adoption_change_type: string | null; portfolio_name: string;
+  adoption_change_type: string | null; portfolio_id: string; portfolio_name: string;
   raised_by: string; raised_by_name: string | null; sponsor_name: string | null;
   complexity_tier: string | null; cost_tier: string | null;
   date_driver_type: string | null; date_driver_detail: string | null;
@@ -450,11 +450,24 @@ export function DemandDetail() {
   useEffect(loadAuditTrail, [id]);
   useEffect(() => { apiFetch('/api/portfolios/sub-portfolios/all').then(setSubPortfolios).catch(() => {}); }, []);
   useEffect(() => { apiFetch('/api/users').then(setUsers).catch(() => {}); }, []);
+  // Scoped to the demand's own raising portfolio - a demand can only link
+  // to a corporate objective or one owned by the portfolio it was raised
+  // against, same rule Raise Demand enforces. Without this, every
+  // portfolio's objectives (e.g. three separate "Data and Insight"
+  // objectives across three portfolios) show up together, making it easy
+  // to attribute a demand to the wrong one. Deliberately NOT year-scoped
+  // like Raise Demand's picker - this edits a link that may already point
+  // at a goal from an earlier year, and filtering it out of the options
+  // would make an already-correct link look unset in the dropdown.
   useEffect(() => {
-    apiFetch('/api/strategic-goals')
+    if (!demand?.portfolio_id) {
+      setStrategicGoals([]);
+      return;
+    }
+    apiFetch(`/api/strategic-goals?portfolio=${demand.portfolio_id}`)
       .then((goals: { id: string; name: string; status: string }[]) => setStrategicGoals(goals.filter((g) => g.status === 'active')))
-      .catch(() => {});
-  }, []);
+      .catch(() => setStrategicGoals([]));
+  }, [demand?.portfolio_id]);
   // Seed the edit form from the loaded demand once, when it arrives -
   // not on every render, so typing isn't clobbered by a background reload.
   useEffect(() => {
