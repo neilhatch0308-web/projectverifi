@@ -70,7 +70,7 @@ Write-Host "  DB_USER=postgres"
 Write-Host "  DB_NAME=postgres"
 Write-Host "  DB_PASSWORD=ledger-db-password:latest"
 Write-Host "  INSTANCE_CONNECTION_NAME=ledger-db-connection-name:latest"
-Write-Host "  ALLOWED_ORIGINS=https://projects.we-verifi.co.uk,https://we-verifi.co.uk"
+Write-Host "  ALLOWED_ORIGINS=https://project.we-verifi.co.uk,https://we-verifi.co.uk"
 Write-Host ""
 
 $confirm = Read-Host "Continue with deployment? (y/n)"
@@ -104,7 +104,7 @@ if ($SkipSource) {
       --project $Project `
       --region $Region `
       --source ./server `
-      --set-env-vars "^;^DB_USER=postgres;DB_NAME=postgres;EMAIL_FROM=noreply@we-verifi.co.uk;EMAIL_FROM_NAME=Project Verifi;ALLOWED_ORIGINS=https://projects.we-verifi.co.uk,https://we-verifi.co.uk" `
+      --set-env-vars "^;^DB_USER=postgres;DB_NAME=postgres;EMAIL_FROM=noreply@we-verifi.co.uk;EMAIL_FROM_NAME=Project Verifi;ALLOWED_ORIGINS=https://project.we-verifi.co.uk,https://we-verifi.co.uk" `
       --update-secrets DB_PASSWORD=ledger-db-password:latest `
       --update-secrets BREVO_API_KEY=ledger-brevo-api-key:latest `
       --update-secrets INSTANCE_CONNECTION_NAME=ledger-db-connection-name:latest

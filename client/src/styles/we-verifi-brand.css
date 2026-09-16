@@ -10,7 +10,7 @@
      <nav class="primary-nav">
        <ul>
          <li><a href="https://certs.we-verifi.co.uk" class="nav-link nav-link--cert">Cert Verifi</a></li>
-         <li><a href="https://projects.we-verifi.co.uk" class="nav-link nav-link--project">Project Verifi</a></li>
+         <li><a href="https://project.we-verifi.co.uk" class="nav-link nav-link--project">Project Verifi</a></li>
          <li><a class="nav-link nav-link--art is-disabled" aria-disabled="true">Art Verifi</a></li>
        </ul>
      </nav>
@@ -22,7 +22,7 @@
        <p class="product-card__desc">Issue and verify digital certificates at scale.</p>
        <span class="btn btn--cert">Visit Cert Verifi →</span>
      </a>
-     <a href="https://projects.we-verifi.co.uk" class="product-card product-card--project">
+     <a href="https://project.we-verifi.co.uk" class="product-card product-card--project">
        <img src="/assets/project-verifi-logo.svg" alt="Project Verifi" class="product-card__logo">
        <p class="product-card__desc">Track project milestones and deliverables.</p>
        <span class="btn btn--project">Visit Project Verifi →</span>

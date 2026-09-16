@@ -102,5 +102,5 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "${Green}=== Frontend Deploy Complete ===${Reset}"
 Write-Host ""
-Write-Host "${Green}Your frontend is now live at: https://projects.we-verifi.co.uk${Reset}"
+Write-Host "${Green}Your frontend is now live at: https://project.we-verifi.co.uk${Reset}"
 Write-Host ""

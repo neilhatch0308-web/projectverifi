@@ -2,7 +2,7 @@
    Ledger (Project Verifi) - app-specific styles.
    Built on top of we-verifi-brand.css's tokens, not a separate system.
    This app uses the teal accent throughout, since Ledger IS Project
-   Verifi - the app-facing product behind projects.we-verifi.co.uk.
+   Verifi - the app-facing product behind project.we-verifi.co.uk.
    =================================================================== */
 
 * { box-sizing: border-box; }
