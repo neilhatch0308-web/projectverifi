@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useHideConfidential } from '../lib/useHideConfidential';
 import { ConfidentialityToggle } from '../components/ConfidentialityToggle';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { ChangeControlPanel } from '../components/ChangeControlPanel';
 import { promotedDemandLabel } from '../lib/promotedDemandLabel';
 
 interface Demand {
@@ -195,6 +196,8 @@ export function MyHome() {
           </div>
         </div>
       )}
+
+      {!loading && !error && <ChangeControlPanel hideConfidential={hideConfidential} />}
     </div>
   );
 }

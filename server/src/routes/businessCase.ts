@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
+import { ensureApprovedBaseline } from '../lib/baseline';
 
 const router = Router();
 
@@ -746,6 +747,11 @@ router.post('/business-cases/:id/decision', requireAuth, requirePermission('busi
          WHERE id = $2 RETURNING id, decision, decision_date`,
         [parsed.data.decision, id]
       );
+      // Approval is the commitment: capture baseline v1 at this moment
+      // (66_change_control_baselines.sql). Not backfilled - real capture.
+      if (parsed.data.decision === 'approved') {
+        await ensureApprovedBaseline(client, organizationId, Array.isArray(id) ? id[0] : id, userId, false);
+      }
       return result.rows[0];
     });
 
@@ -1141,4 +1147,5 @@ function fmtMoney(value: number | string | null | undefined): string {
   return `GBP ${n.toLocaleString()}`;
 }
 
+export { assertCanAccessBusinessCase };
 export default router;

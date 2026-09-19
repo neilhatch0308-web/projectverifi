@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { withTenantContext } from '../db/pool';
 import { looseUuid } from '../lib/validation';
+import { releaseEligibleHolds } from '../lib/changeEngine';
 
 const router = Router();
 
@@ -1015,6 +1016,17 @@ router.post('/demands/:id/confidential-viewers', requireAuth, async (req, res) =
          ON CONFLICT (demand_id, user_id) DO NOTHING`,
         [organizationId, id, parsed.data.userId, userId]
       );
+
+      // A change request held because its named decider could not see
+      // this demand may now be releasable (68_change_request_holds.sql).
+      // Failures here are reported by the recheck route, never allowed
+      // to undo the viewer grant itself.
+      const grant = await client.query(
+        `SELECT id FROM demand_confidential_viewer WHERE demand_id = $1 AND user_id = $2`,
+        [id, parsed.data.userId]
+      );
+      await releaseEligibleHolds(client, organizationId, Array.isArray(id) ? id[0] : id, userId, 'viewer_grant',
+        { viewerGrantId: grant.rows[0]?.id ?? null });
       return { ok: true as const };
     });
 
